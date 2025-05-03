@@ -216,7 +216,7 @@ class BlackjackView(View):
                 logger.error(f"Error handling blackjack timeout: {e}")
     
     @discord.ui.button(label="Hit", style=ButtonStyle.primary)
-    async def hit_button(self, button: Button, interaction: discord.Interaction):
+    async def hit_button(self, interaction: discord.Interaction, button: Button):
         # Check if it's the player's game
         if str(interaction.user.id) != self.game.player_id:
             await interaction.response.send_message("This isn't your game!", ephemeral=True)
@@ -246,7 +246,7 @@ class BlackjackView(View):
         await interaction.response.edit_message(embed=embed, view=self if not game_state["game_over"] else None)
     
     @discord.ui.button(label="Stand", style=ButtonStyle.secondary)
-    async def stand_button(self, button: Button, interaction: discord.Interaction):
+    async def stand_button(self, interaction: discord.Interaction, button: Button):
         # Check if it's the player's game
         if str(interaction.user.id) != self.game.player_id:
             await interaction.response.send_message("This isn't your game!", ephemeral=True)

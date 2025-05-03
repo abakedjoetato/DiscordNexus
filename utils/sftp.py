@@ -35,6 +35,12 @@ class SFTPClient:
         self._csv_cache_duration = 300  # Cache CSV file list for 5 minutes
         self.last_heartbeat = time.time()
         self.heartbeat_interval = 30  # 30 seconds
+        self._cache_duration = 300  # 5 minute cache for directory structure
+        self._dir_cache = {}
+        self._last_cache_refresh = 0
+        self._csv_pattern = re.compile(CSV_FILENAME_PATTERN)
+        self._connection_timeout = 10  # 10 second timeout for operations
+
 
     async def connect(self):
         """Establish SFTP connection"""
@@ -66,7 +72,7 @@ class SFTPClient:
             return False
 
     async def find_root_path(self):
-        """Find the root path containing server directory"""
+        """Find the root path containing server directory with optimized search"""
         try:
             current_path = '.'
             self.root_path = None
@@ -79,11 +85,21 @@ class SFTPClient:
             self.max_search_depth = 6
             self.world_dir_pattern = re.compile(r'^world_\d+$', re.IGNORECASE)
 
-            # Add heartbeat monitoring
+            # Add heartbeat monitoring with improved timeout handling
             self.last_heartbeat = time.time()
             self.heartbeat_interval = 30  # 30 seconds
 
-            items = await self._list_dir_safe(current_path)
+            # Use cached directory listing if available and fresh
+            current_time = time.time()
+            if (current_path in self._dir_cache and 
+                current_time - self._last_cache_refresh < self._cache_duration):
+                items = self._dir_cache[current_path]
+                logger.debug(f"Using cached directory listing for {current_path}")
+            else:
+                items = await self._list_dir_safe(current_path)
+                self._dir_cache[current_path] = items
+                self._last_cache_refresh = current_time
+
             logger.info(f"Searching for server directory matching pattern: {server_pattern}")
             logger.info(f"Found items in root: {items}")
 
@@ -280,7 +296,7 @@ class SFTPClient:
         try:
             items = await asyncio.wait_for(
                 asyncio.to_thread(lambda: self.sftp.listdir(path)),
-                timeout=5.0
+                timeout=self._connection_timeout
             )
             return items
         except Exception as e:
@@ -292,7 +308,7 @@ class SFTPClient:
         try:
             result = await asyncio.wait_for(
                 asyncio.to_thread(lambda: self.sftp.stat(path).st_mode & 0o40000 != 0),
-                timeout=2.0
+                timeout=self._connection_timeout
             )
             return result
         except Exception:

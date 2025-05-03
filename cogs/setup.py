@@ -815,7 +815,19 @@ class Setup(commands.Cog):
             # Log the update attempt
             logger.info(f"Attempting to update server {server_id} with channel data: {update_data}")
 
-            # Update server
+            # Convert channel IDs to integers before update
+            if killfeed_channel:
+                update_data["killfeed_channel_id"] = killfeed_channel.id
+            if events_channel:
+                update_data["events_channel_id"] = events_channel.id 
+            if connections_channel:
+                update_data["connections_channel_id"] = connections_channel.id
+            if economy_channel:
+                update_data["economy_channel_id"] = economy_channel.id
+            if voice_status_channel:
+                update_data["voice_status_channel_id"] = voice_status_channel.id
+
+            # Update server with proper integer channel IDs
             updated = await server.update(update_data)
 
             if updated:

@@ -21,10 +21,20 @@ class Server:
         self.sftp_port = server_data.get("sftp_port")
         self.sftp_username = server_data.get("sftp_username")
         self.sftp_password = server_data.get("sftp_password")
-        self.killfeed_channel_id = server_data.get("killfeed_channel_id")
-        self.events_channel_id = server_data.get("events_channel_id")
-        self.connections_channel_id = server_data.get("connections_channel_id")
-        self.voice_status_channel_id = server_data.get("voice_status_channel_id")
+        
+        # Ensure channel IDs are integers
+        channel_ids = ["killfeed_channel_id", "events_channel_id", 
+                      "connections_channel_id", "voice_status_channel_id"]
+        
+        for channel_id in channel_ids:
+            raw_id = server_data.get(channel_id)
+            if raw_id is not None:
+                try:
+                    setattr(self, channel_id, int(raw_id))
+                except (ValueError, TypeError):
+                    setattr(self, channel_id, None)
+            else:
+                setattr(self, channel_id, None)
         self.last_csv_line = server_data.get("last_csv_line", 0)
         self.last_log_line = server_data.get("last_log_line", 0)
         self.created_at = server_data.get("created_at")

@@ -7,6 +7,8 @@ This script implements several critical fixes:
 3. Autocomplete Subcommand Detection - Improves detection of subcommands that need fresh data
 4. Fixed datetime object handling - Resolved multiple instances of datetime.datetime vs datetime issues
 5. Enhanced error handling for edge cases - Better handling of null server_ids and empty inputs
+6. Console Fields Handling - Fixed process to handle newer CSV format with console fields (XSX, PS5)
+7. Proper Suicide Event Recognition - Improved handling of suicide_by_relocation events
 
 The fixes ensure that:
 - Historical parser can process multiple CSV files sequentially with proper datetime handling
@@ -14,6 +16,8 @@ The fixes ensure that:
 - The `/setup historicalparse` command properly detects and shows servers
 - All datetime handling is consistent throughout the codebase
 - Edge cases like empty input and null values are properly handled
+- Newer CSV files (April/May 2025) with console information fields are properly processed
+- All types of suicide events are correctly categorized and normalized
 
 Run this script to apply all fixes at once.
 """
@@ -158,6 +162,112 @@ def fix_server_id_type_consistency():
         
     return True
 
+def fix_console_fields_handling():
+    """Fix the handling of CSV files with console fields (XSX, PS5)
+    
+    This ensures that:
+    1. CSV files with console fields are properly detected and parsed
+    2. Console field values are properly extracted and stored
+    3. The connection event detection logic doesn't reject kill events
+    """
+    logger.info("Fixing console fields handling...")
+    
+    try:
+        # Update parsers.py with improved console fields handling
+        parsers_file = "utils/parsers.py"
+        with open(parsers_file, 'r') as file:
+            parsers_content = file.read()
+            
+        # Update the connection event detection logic - fix the condition
+        # that was mistakenly rejecting kill events
+        pattern1 = r'# Check if this is a connection event \(has empty killer fields\)\s+if \(len\(raw_parts\) >= 8 and\s+\(not raw_parts\[1\]\.strip\(\) or raw_parts\[1\]\.isspace\(\)\) and\s+\(not raw_parts\[2\]\.strip\(\) or raw_parts\[2\]\.isspace\(\)\)\):'
+        replacement1 = '# Check if this is a connection event (has empty killer fields AND empty victim fields)\n            # The format was mistakenly rejecting valid kill events with console information\n            if (len(raw_parts) >= 8 and \n                (not raw_parts[1].strip() or raw_parts[1].isspace()) and \n                (not raw_parts[2].strip() or raw_parts[2].isspace()) and\n                (not raw_parts[3].strip() or raw_parts[3].isspace()) and\n                (not raw_parts[4].strip() or raw_parts[4].isspace())):'
+        parsers_content = re.sub(pattern1, replacement1, parsers_content, flags=re.DOTALL)
+        
+        # Add special logging for lines with console information
+        pattern2 = r'(if has_console_indicator:.*?return None  # Skip these lines as they\'re not actual kill events)'
+        replacement2 = r'\1\n                    \n            # Special logging for lines with console information\n            if len(raw_parts) >= 8 and (\n                "XSX" in raw_parts[7] or "PS5" in raw_parts[7] or \n                (len(raw_parts) > 8 and ("XSX" in raw_parts[8] or "PS5" in raw_parts[8]))):\n                logger.debug(f"Processing console kill event: {line}")'
+        parsers_content = re.sub(pattern2, replacement2, parsers_content, flags=re.DOTALL)
+        
+        # Update console field extraction with safer code
+        pattern3 = r'# Check if console fields are present in raw parts \(new format\)\s+if len\(raw_parts\) > CSV_FIELDS\["killer_console"\]:\s+killer_console = raw_parts\[CSV_FIELDS\["killer_console"\]\]\.strip\(\)\s+\s+if len\(raw_parts\) > CSV_FIELDS\["victim_console"\]:\s+victim_console = raw_parts\[CSV_FIELDS\["victim_console"\]\]\.strip\(\)'
+        replacement3 = '# Check if console fields are present in raw parts (new format)\n            # Safer extraction of console information\n            killer_console = ""\n            victim_console = ""\n            killer_console_idx = CSV_FIELDS.get("killer_console", 7)\n            victim_console_idx = CSV_FIELDS.get("victim_console", 8)\n            \n            if len(raw_parts) > killer_console_idx:\n                killer_console = raw_parts[killer_console_idx].strip()\n                \n                # Handle case where the value might be empty\n                if killer_console == "":\n                    # Default to empty rather than None\n                    killer_console = ""\n            \n            if len(raw_parts) > victim_console_idx:\n                victim_console = raw_parts[victim_console_idx].strip()\n                \n                # Handle case where the value might be empty  \n                if victim_console == "":\n                    # Default to empty rather than None\n                    victim_console = ""\n                    \n            # Log the console values for debugging\n            logger.debug(f"Console values: killer={killer_console}, victim={victim_console}")'
+        parsers_content = re.sub(pattern3, replacement3, parsers_content, flags=re.DOTALL)
+        
+        with open(parsers_file, 'w') as file:
+            file.write(parsers_content)
+            
+        logger.info("Successfully updated parsers.py with console fields handling")
+        return True
+    except Exception as e:
+        logger.error(f"Error fixing console fields handling: {e}")
+        return False
+
+def fix_suicide_event_recognition():
+    """Improve the handling of suicide_by_relocation events
+    
+    This ensures that:
+    1. Both "suicide_by_relocation" and "suicide by relocation" are recognized
+    2. Vehicle suicide detection is more flexible for variant spellings
+    3. Suicide weapon names are consistently normalized
+    """
+    logger.info("Fixing suicide event recognition...")
+    
+    try:
+        # Update parsers.py with improved suicide event recognition
+        parsers_file = "utils/parsers.py"
+        with open(parsers_file, 'r') as file:
+            parsers_content = file.read()
+            
+        # Update suicide case handling
+        pattern = r'# Handle suicide cases where killer and victim are the same\s+if is_suicide:\s+if weapon_lower == "suicide_by_relocation":\s+suicide_type = "menu"\s+elif weapon_lower == "falling":\s+suicide_type = "fall"\s+elif weapon_lower in \["land_vehicle", "boat", "vehicle"\]:\s+suicide_type = "vehicle"\s+else:\s+suicide_type = "other"'
+        replacement = '# Handle suicide cases where killer and victim are the same\n            if is_suicide:\n                # Log the suicide case for debugging\n                logger.debug(f"Processing suicide event with weapon: {weapon_lower}")\n                \n                if weapon_lower == "suicide_by_relocation" or weapon_lower == "suicide by relocation":\n                    suicide_type = "menu"\n                elif weapon_lower == "falling":\n                    suicide_type = "fall"\n                elif any(veh_type in weapon_lower for veh_type in ["land_vehicle", "boat", "vehicle"]):\n                    suicide_type = "vehicle"\n                else:\n                    suicide_type = "other"\n                    \n                # Ensure weapon is consistently normalized for suicides\n                if weapon_lower == "suicide_by_relocation" or weapon_lower == "suicide by relocation":\n                    weapon = "Suicide (Menu)"'
+        parsers_content = re.sub(pattern, replacement, parsers_content, flags=re.DOTALL)
+        
+        with open(parsers_file, 'w') as file:
+            file.write(parsers_content)
+            
+        logger.info("Successfully updated parsers.py with suicide event recognition")
+        return True
+    except Exception as e:
+        logger.error(f"Error fixing suicide event recognition: {e}")
+        return False
+
+def fix_timestamp_parsing():
+    """Improve timestamp parsing in CSV and log parsers
+    
+    This ensures that:
+    1. Multiple timestamp formats are supported
+    2. Errors are better handled with appropriate fallbacks
+    3. Consistent import and usage of datetime objects
+    """
+    logger.info("Fixing timestamp parsing...")
+    
+    try:
+        # Update parsers.py with improved timestamp parsing
+        parsers_file = "utils/parsers.py"
+        with open(parsers_file, 'r') as file:
+            parsers_content = file.read()
+            
+        # Update CSV parser timestamp handling
+        pattern1 = r'# Parse timestamp\s+try:\s+timestamp = datetime\.strptime\(\s+timestamp_str, "%Y\.%m\.%d-%H\.%M\.%S"\s+\)\s+except ValueError:\s+logger\.warning\(f"Invalid timestamp format: \{timestamp_str\}"\)\s+# Use current time as fallback\s+timestamp = datetime\.utcnow\(\)'
+        replacement1 = '# Parse timestamp with improved error handling\n            try:\n                # Try the standard format first\n                timestamp = datetime.datetime.strptime(\n                    timestamp_str, "%Y.%m.%d-%H.%M.%S"\n                )\n            except ValueError:\n                # Try alternative formats if the standard format fails\n                try:\n                    # Try format with different separators\n                    timestamp = datetime.datetime.strptime(\n                        timestamp_str, "%Y-%m-%d-%H.%M.%S"\n                    )\n                except ValueError:\n                    try:\n                        # Try format with spaces instead of dashes\n                        timestamp = datetime.datetime.strptime(\n                            timestamp_str, "%Y.%m.%d %H.%M.%S"\n                        )\n                    except ValueError:\n                        logger.warning(f"Invalid timestamp format: {timestamp_str}")\n                        # Use current time as fallback\n                        timestamp = datetime.datetime.utcnow()'
+        parsers_content = re.sub(pattern1, replacement1, parsers_content, flags=re.DOTALL)
+        
+        # Update LogParser timestamp handling
+        pattern2 = r'try:\s+# Parse timestamp\s+timestamp = datetime\.strptime\(\s+f"\{date_str\} \{time_str\}", "%Y\.%m\.%d %H\.%M\.%S"\s+\)\s+except ValueError:\s+# Use current time as fallback\s+timestamp = datetime\.utcnow\(\)'
+        replacement2 = 'try:\n                # Parse timestamp with improved format handling\n                timestamp = datetime.datetime.strptime(\n                    f"{date_str} {time_str}", "%Y.%m.%d %H.%M.%S"\n                )\n            except ValueError:\n                # Try alternative formats\n                try:\n                    timestamp = datetime.datetime.strptime(\n                        f"{date_str} {time_str}", "%Y-%m-%d %H.%M.%S"\n                    )\n                except ValueError:\n                    # Use current time as fallback\n                    timestamp = datetime.datetime.utcnow()'
+        parsers_content = re.sub(pattern2, replacement2, parsers_content, flags=re.DOTALL)
+        
+        with open(parsers_file, 'w') as file:
+            file.write(parsers_content)
+            
+        logger.info("Successfully updated parsers.py with improved timestamp parsing")
+        return True
+    except Exception as e:
+        logger.error(f"Error fixing timestamp parsing: {e}")
+        return False
+
 def main():
     """Run all fixes"""
     logger.info("Starting comprehensive fixes for Tower of Temptation PvP Statistics Discord Bot")
@@ -173,6 +283,24 @@ def main():
         logger.info("Successfully fixed server_id type consistency")
     else:
         logger.error("Failed to fix server_id type consistency")
+    
+    # Fix console fields handling
+    if fix_console_fields_handling():
+        logger.info("Successfully fixed console fields handling")
+    else:
+        logger.error("Failed to fix console fields handling")
+    
+    # Fix suicide event recognition
+    if fix_suicide_event_recognition():
+        logger.info("Successfully fixed suicide event recognition")
+    else:
+        logger.error("Failed to fix suicide event recognition")
+    
+    # Fix timestamp parsing
+    if fix_timestamp_parsing():
+        logger.info("Successfully fixed timestamp parsing")
+    else:
+        logger.error("Failed to fix timestamp parsing")
         
     logger.info("All fixes applied - restart the bot to apply changes")
 

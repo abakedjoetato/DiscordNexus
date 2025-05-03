@@ -7,6 +7,8 @@ This script applies all the comprehensive fixes we've made to resolve:
 3. CSV parsing tolerance for different line formats 
 4. File size calculations and line counting
 5. Chunk reading with better error handling
+6. Console fields parsing for newer CSV formats (XSX, PS5)
+7. Suicide event recognition improvements
 
 Run this script to apply all fixes at once.
 """
@@ -49,6 +51,8 @@ async def main():
         print("3. CSV parsing format tolerance for different line formats")
         print("4. File size calculation and line counting accuracy")
         print("5. Chunk reading with better error handling")
+        print("6. Console fields parsing for newer CSV formats (XSX, PS5)")
+        print("7. Suicide event recognition improvements")
         print("\nRestart the bot to apply all changes.")
         print("="*80 + "\n")
         

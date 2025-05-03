@@ -269,14 +269,21 @@ class CSVParser:
             
             # Handle suicide cases where killer and victim are the same
             if is_suicide:
-                if weapon_lower == "suicide_by_relocation":
+                # Log the suicide case for debugging
+                logger.debug(f"Processing suicide event with weapon: {weapon_lower}")
+                
+                if weapon_lower == "suicide_by_relocation" or weapon_lower == "suicide by relocation":
                     suicide_type = "menu"
                 elif weapon_lower == "falling":
                     suicide_type = "fall"
-                elif weapon_lower in ["land_vehicle", "boat", "vehicle"]:
+                elif any(veh_type in weapon_lower for veh_type in ["land_vehicle", "boat", "vehicle"]):
                     suicide_type = "vehicle"
                 else:
                     suicide_type = "other"
+                    
+                # Ensure weapon is consistently normalized for suicides
+                if weapon_lower == "suicide_by_relocation" or weapon_lower == "suicide by relocation":
+                    weapon = "Suicide (Menu)"
             
             # Get console information if available
             killer_console = ""
@@ -361,13 +368,19 @@ class LogParser:
             date_str, time_str = timestamp_match.groups()
             
             try:
-                # Parse timestamp
-                timestamp = datetime.strptime(
+                # Parse timestamp with improved format handling
+                timestamp = datetime.datetime.strptime(
                     f"{date_str} {time_str}", "%Y.%m.%d %H.%M.%S"
                 )
             except ValueError:
-                # Use current time as fallback
-                timestamp = datetime.utcnow()
+                # Try alternative formats
+                try:
+                    timestamp = datetime.datetime.strptime(
+                        f"{date_str} {time_str}", "%Y-%m-%d %H.%M.%S"
+                    )
+                except ValueError:
+                    # Use current time as fallback
+                    timestamp = datetime.datetime.utcnow()
             
             # Check for player connection events
             connection_match = re.search(r'Player (\w+) \(([0-9a-f]+)\) (connected|disconnected)', line)

@@ -160,30 +160,18 @@ async def server_id_autocomplete(interaction, current):
                         cog.bot.db.guilds.find_one({"guild_id": guild_id}),
                         timeout=1.0  # 1 second timeout for autocomplete
                     )
+                    # Get servers from cache
                     servers = []
 
                     if guild_data and "servers" in guild_data:
-                        # Get server data
-                        servers = guild_data["servers"]
-
-                    # Ensure all server_ids are strings
-                    for server in servers:
-                        if "server_id" in server:
-                            server["server_id"] = str(server["server_id"])
-
-                    # Ensure all server_ids are strings
-                    for server in servers:
-                        if "server_id" in server:
-                            server["server_id"] = str(server["server_id"])
-                        logger.info(f"Found {len(servers)} servers in fresh database query")
-
-                    # Ensure all server_ids are strings
-                    for server in servers:
-                        if "server_id" in server:
-                            old_id = server["server_id"]
-                            server["server_id"] = str(server["server_id"])
-                            if old_id != server["server_id"]:
-                                logger.info(f"Converted server_id from {type(old_id).__name__} to string: {old_id} -> {server['server_id']}")
+                        # Get server data and ensure server_ids are strings
+                        servers = []
+                        for server in guild_data["servers"]:
+                            server_copy = server.copy()  # Create a copy to avoid modifying original
+                            if "server_id" in server_copy:
+                                server_copy["server_id"] = str(server_copy["server_id"])
+                            servers.append(server_copy)
+                        logger.info(f"Processed {len(servers)} servers for autocomplete")
 
                     # Update cache (even for forced fresh data - this keeps it fresh for next time)
                     SERVER_CACHE[cache_key] = {
@@ -773,41 +761,7 @@ class Setup(commands.Cog):
             if events_channel:
                 update_data["events_channel_id"] = events_channel.id
                 logger.info(f"Setting events_channel_id to {update_data['events_channel_id']} (type: {type(update_data['events_channel_id']).__name__})")
-                update_desc.append(f"Events Channel: {events_channel.mention}")
-
-            # Update connections channel
-            if connections_channel:
-                update_data["connections_channel_id"] = connections_channel.id
-                logger.info(f"Setting connections_channel_id to {update_data['connections_channel_id']}")
-                update_desc.append(f"Connections Channel: {connections_channel.mention}")
-
-            # Update server with new channel IDs
-            success = await server.update(update_data)
-            if not success:
-                embed = EmbedBuilder.create_error_embed(
-                    "Error",
-                    "Failed to update server channels. Please try again."
-                , guild=guild_model)
-                await ctx.send(embed=embed)
-                return
-
-            # Send success message
-            embed = EmbedBuilder.create_success_embed(
-                "Channels Updated",
-                "Server channels have been updated successfully."
-            , guild=guild_model)
-            embed.add_field(
-                name="Updated Channels",
-                value="\n".join(update_desc),
-                inline=False
-            )
-            await ctx.send(embed=embed)nts_channel.mention}")
-
-            # Update connections channel
-            if connections_channel:
-                update_data["connections_channel_id"] = connections_channel.id
-                logger.info(f"Setting connections_channel_id to {update_data['connections_channel_id']} (type: {type(update_data['connections_channel_id']).__name__})")
-                update_desc.append(f"Connections Channel: {connections_channel.mention}")
+                update_desc.append(f"Events Channel: {events_channel.mention}")                update_desc.append(f"Connections Channel: {connections_channel.mention}")
 
             # Update voice status channel
             if voice_status_channel:

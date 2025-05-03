@@ -33,9 +33,13 @@ class Event:
         # Copy data to avoid modifying original
         event_data = event_data.copy()
         
-        # Ensure event_type is set
-        if "type" in event_data and "event_type" not in event_data:
-            event_data["event_type"] = event_data["type"]
+        # Ensure event_type is set and normalized
+        event_type = event_data.get("event_type") or event_data.get("type")
+        if not event_type:
+            raise ValueError("Missing event type")
+            
+        event_data["event_type"] = event_type
+        event_data["type"] = event_type  # Ensure both fields match
         
         # Convert timestamp to datetime if it's a string
         if isinstance(event_data["timestamp"], str):

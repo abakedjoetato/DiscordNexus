@@ -231,14 +231,14 @@ class CSVParser:
             try:
                 # Try the standard format first
                 timestamp = datetime.datetime.strptime(
-                    timestamp_str, "%Y.%m.%d-%H.%M.%S"
+                    timestamp_str.strip(), "%Y.%m.%d-%H.%M.%S"
                 )
             except ValueError:
                 # Try alternative formats if the standard format fails
                 try:
                     # Try format with different separators
                     timestamp = datetime.datetime.strptime(
-                        timestamp_str, "%Y-%m-%d-%H.%M.%S"
+                        timestamp_str.strip(), "%Y-%m-%d-%H.%M.%S"
                     )
                 except ValueError:
                     try:

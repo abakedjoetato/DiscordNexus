@@ -30,6 +30,11 @@ class SFTPClient:
         self.root_path = None
         self.connected = False
         self.last_error = None
+        self._csv_cache = {}
+        self._csv_cache_time = 0
+        self._csv_cache_duration = 300  # Cache CSV file list for 5 minutes
+        self.last_heartbeat = time.time()
+        self.heartbeat_interval = 30  # 30 seconds
 
     async def connect(self):
         """Establish SFTP connection"""
@@ -70,9 +75,13 @@ class SFTPClient:
             ip_address = self.host.split(':')[0]
             server_pattern = f"{ip_address}_{self.server_id}"
 
-            # Ensure we have enough depth to reach CSV files (pattern: root/serverid/actual1/deathlogs/worldX/)
+            # Configure optimal depth for CSV files (root/serverid/actual1/deathlogs/worldX/)
             self.max_search_depth = 6
             self.world_dir_pattern = re.compile(r'^world_\d+$', re.IGNORECASE)
+
+            # Add heartbeat monitoring
+            self.last_heartbeat = time.time()
+            self.heartbeat_interval = 30  # 30 seconds
 
             items = await self._list_dir_safe(current_path)
             logger.info(f"Searching for server directory matching pattern: {server_pattern}")
@@ -93,131 +102,129 @@ class SFTPClient:
             logger.error(f"Error finding root path: {e}", exc_info=True)
             self.root_path = '.'
 
-    def __init__(self, host, port, username, password, server_id):
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
-        self.server_id = server_id
-        self.client = None
-        self.sftp = None
-        self.root_path = None
-        self.connected = False
-        self.last_error = None
-        self._csv_cache = {}
-        self._csv_cache_time = 0
-        self._csv_cache_duration = 300  # Cache CSV file list for 5 minutes
-
     async def get_latest_csv_file(self):
-        """Get the most recent CSV file from any subdirectory with caching"""
-        if not self.connected:
-            await self.connect()
-            if not self.connected:
-                return None
+        """Get the most recent CSV file from any subdirectory with improved error handling"""
+        retry_count = 0
+        max_retries = 3
 
-        current_time = time.time()
+        while retry_count < max_retries:
+            try:
+                if not self.connected:
+                    await self.connect()
+                    if not self.connected:
+                        return None
 
-        # Check cache validity
-        if (self._csv_cache and 
-            current_time - self._csv_cache_time < self._csv_cache_duration):
-            logger.debug("Using cached CSV file list")
-            if self._csv_cache.get('latest'):
-                return self._csv_cache['latest']
+                self.last_heartbeat = time.time()
+                current_time = time.time()
 
-        try:
-            # Construct base paths to check
-            server_dir = f"{self.host.split(':')[0]}_{self.server_id}"
-            paths_to_check = [
-                os.path.join(".", server_dir, "actual1", "deathlogs"),
-                os.path.join(".", server_dir, "deathlogs")
-            ]
-
-            csv_files = []
-            paths_checked = set()
-
-            async def check_path(base_path, depth=0):
-                if depth > 10 or base_path in paths_checked:  # Prevent infinite recursion
-                    return []
-
-                paths_checked.add(base_path)
-                found_files = []
+                # Check cache validity
+                if (self._csv_cache and 
+                    current_time - self._csv_cache_time < self._csv_cache_duration):
+                    logger.debug("Using cached CSV file list")
+                    if self._csv_cache.get('latest'):
+                        return self._csv_cache['latest']
 
                 try:
-                    items = await self._list_dir_safe(base_path)
-                    if not items:
-                        return []
+                    # Construct base paths to check
+                    server_dir = f"{self.host.split(':')[0]}_{self.server_id}"
+                    paths_to_check = [
+                        os.path.join(".", server_dir, "actual1", "deathlogs"),
+                        os.path.join(".", server_dir, "deathlogs")
+                    ]
 
-                    # First prioritize worldX directories
-                    world_dirs = [item for item in items if re.match(r'^world_\d+$', item.lower())]
+                    csv_files = []
+                    paths_checked = set()
 
-                    # Then check these world directories first
-                    for world_dir in world_dirs:
-                        full_path = os.path.join(base_path, world_dir)
-                        if await self._is_dir_safe(full_path):
-                            subdir_files = await check_path(full_path, depth + 1)
-                            found_files.extend(subdir_files)
+                    async def check_path(base_path, depth=0):
+                        if depth > 10 or base_path in paths_checked:  # Prevent infinite recursion
+                            return []
 
-                    # Check for CSV files in current directory
-                    csv_files = [item for item in items if re.match(CSV_FILENAME_PATTERN, item)]
-                    found_files.extend([os.path.join(base_path, csv) for csv in csv_files])
+                        paths_checked.add(base_path)
+                        found_files = []
 
-                    # Only check other directories if we haven't found files
-                    if not found_files:
-                        other_dirs = [item for item in items if item not in world_dirs and await self._is_dir_safe(os.path.join(base_path, item))]
-                        for other_dir in other_dirs:
-                            full_path = os.path.join(base_path, other_dir)
-                            subdir_files = await check_path(full_path, depth + 1)
-                            found_files.extend(subdir_files)
+                        try:
+                            items = await self._list_dir_safe(base_path)
+                            if not items:
+                                return []
+
+                            # First prioritize worldX directories
+                            world_dirs = [item for item in items if re.match(r'^world_\d+$', item.lower())]
+
+                            # Then check these world directories first
+                            for world_dir in world_dirs:
+                                full_path = os.path.join(base_path, world_dir)
+                                if await self._is_dir_safe(full_path):
+                                    subdir_files = await check_path(full_path, depth + 1)
+                                    found_files.extend(subdir_files)
+
+                            # Check for CSV files in current directory
+                            csv_files = [item for item in items if re.match(CSV_FILENAME_PATTERN, item)]
+                            found_files.extend([os.path.join(base_path, csv) for csv in csv_files])
+
+                            # Only check other directories if we haven't found files
+                            if not found_files:
+                                other_dirs = [item for item in items if item not in world_dirs and await self._is_dir_safe(os.path.join(base_path, item))]
+                                for other_dir in other_dirs:
+                                    full_path = os.path.join(base_path, other_dir)
+                                    subdir_files = await check_path(full_path, depth + 1)
+                                    found_files.extend(subdir_files)
+
+                        except Exception as e:
+                            logger.warning(f"Error checking path {base_path}: {e}")
+
+                        return found_files
+
+                    # Check all potential paths
+                    for deathlogs_path in paths_to_check:
+                        logger.info(f"Searching for CSV files in {deathlogs_path}")
+                        found_files = await check_path(deathlogs_path)
+                        if found_files:
+                            csv_files.extend(found_files)
+                            logger.info(f"Found {len(found_files)} CSV files in {deathlogs_path}")
+
+                    if not csv_files:
+                        logger.warning(f"No CSV files found in {deathlogs_path}")
+                        return None
+
+                    # Sort by timestamp from filename
+                    sorted_files = []
+                    for file_path in csv_files:
+                        try:
+                            filename = os.path.basename(file_path)
+                            # Parse timestamp from filename (YYYY.MM.DD-HH.MM.SS)
+                            timestamp_str = filename.split('.csv')[0]
+                            dt = datetime.datetime.strptime(timestamp_str, '%Y.%m.%d-%H.%M.%S')
+                            sorted_files.append((file_path, dt.timestamp(), filename))
+                            logger.info(f"Parsed CSV file: {filename} with timestamp {dt}")
+                        except Exception as e:
+                            logger.warning(f"Could not parse timestamp from {filename}: {e}")
+                            # Use file modification time as fallback
+                            try:
+                                attrs = await asyncio.to_thread(lambda: self.sftp.stat(file_path))
+                                sorted_files.append((file_path, attrs.st_mtime, filename))
+                            except Exception:
+                                sorted_files.append((file_path, 0, filename))
+
+                    # Sort by timestamp (newest first)
+                    sorted_files.sort(key=lambda x: float(x[1]), reverse=True)
+
+                    if sorted_files:
+                        latest_file = sorted_files[0][0]
+                        logger.info(f"Using latest CSV file: {latest_file}")
+                        self._csv_cache = {'latest': latest_file, 'time': current_time}
+                        return latest_file
+
+                    return None
 
                 except Exception as e:
-                    logger.warning(f"Error checking path {base_path}: {e}")
+                    logger.error(f"Error getting latest CSV file: {e}", exc_info=True)
+                    return None
 
-                return found_files
-
-            # Check all potential paths
-            for deathlogs_path in paths_to_check:
-                logger.info(f"Searching for CSV files in {deathlogs_path}")
-                found_files = await check_path(deathlogs_path)
-                if found_files:
-                    csv_files.extend(found_files)
-                    logger.info(f"Found {len(found_files)} CSV files in {deathlogs_path}")
-
-            if not csv_files:
-                logger.warning(f"No CSV files found in {deathlogs_path}")
-                return None
-
-            # Sort by timestamp from filename
-            sorted_files = []
-            for file_path in csv_files:
-                try:
-                    filename = os.path.basename(file_path)
-                    # Parse timestamp from filename (YYYY.MM.DD-HH.MM.SS)
-                    timestamp_str = filename.split('.csv')[0]
-                    dt = datetime.datetime.strptime(timestamp_str, '%Y.%m.%d-%H.%M.%S')
-                    sorted_files.append((file_path, dt.timestamp(), filename))
-                    logger.info(f"Parsed CSV file: {filename} with timestamp {dt}")
-                except Exception as e:
-                    logger.warning(f"Could not parse timestamp from {filename}: {e}")
-                    # Use file modification time as fallback
-                    try:
-                        attrs = await asyncio.to_thread(lambda: self.sftp.stat(file_path))
-                        sorted_files.append((file_path, attrs.st_mtime, filename))
-                    except Exception:
-                        sorted_files.append((file_path, 0, filename))
-
-            # Sort by timestamp (newest first)
-            sorted_files.sort(key=lambda x: float(x[1]), reverse=True)
-
-            if sorted_files:
-                latest_file = sorted_files[0][0]
-                logger.info(f"Using latest CSV file: {latest_file}")
-                return latest_file
-
-            return None
-
-        except Exception as e:
-            logger.error(f"Error getting latest CSV file: {e}", exc_info=True)
-            return None
+            except Exception as e:
+                logger.error(f"Error in get_latest_csv_file retry {retry_count + 1}: {e}")
+                retry_count += 1
+                await asyncio.sleep(2**retry_count)  # Exponential backoff
+        return None
 
     async def _find_csv_files_recursive(self, directory, max_depth=6, current_depth=0):
         """Find all CSV files recursively with improved error handling"""

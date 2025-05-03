@@ -245,15 +245,6 @@ class Setup(commands.Cog):
         server_id="Unique ID for the server (letters, numbers, underscores only)"
     )
     @app_commands.guild_only()
-    @app_commands.describe(
-        server_name="Friendly name to display for this server",
-        host="SFTP host address",
-        port="SFTP port",
-        username="SFTP username",
-        password="SFTP password",
-        server_id="Unique ID for the server (letters, numbers, underscores only)"
-    )
-    @app_commands.guild_only()
     async def add_server(self, ctx, server_name: str, host: str, port: int, username: str, password: str, server_id: str):
         """Add a new server to track"""
         try:

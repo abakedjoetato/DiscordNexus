@@ -1219,4 +1219,5 @@ async def setup(bot):
     """Set up the Economy cog"""
     # Import here to avoid circular import
     from datetime import datetime
+    from models.economy import Economy as EconomyModel
     await bot.add_cog(Economy(bot))

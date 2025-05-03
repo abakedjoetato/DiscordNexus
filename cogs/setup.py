@@ -25,16 +25,27 @@ logger = logging.getLogger(__name__)
 SERVER_CACHE = {}
 SERVER_CACHE_TIMEOUT = 300  # 5 minutes
 
-async def server_id_autocomplete(interaction, current):
+async def server_id_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
     """Autocomplete for server selection by name, returns server_id as value"""
     try:
-        # Enhanced logging for debugging
-        command_info = {}
+        # Get guild data directly
+        guild_data = await interaction.client.db.guilds.find_one({"guild_id": interaction.guild_id})
+        if not guild_data or "servers" not in guild_data:
+            return []
 
-        # Extract the full command path and options data
-        command_info["command_name"] = interaction.data.get("name", "unknown")
-        command_info["focused_option"] = interaction.data.get("focused", "unknown")
-        command_info["options_data"] = []
+        choices = []
+        for server in guild_data["servers"]:
+            server_id = str(server.get("server_id", ""))  # Ensure string type
+            server_name = server.get("server_name", server.get("name", "Unknown"))
+            
+            # Check if current input matches server name or ID
+            if not current or current.lower() in server_name.lower() or current.lower() in server_id.lower():
+                choices.append(app_commands.Choice(
+                    name=f"{server_name} ({server_id})",
+                    value=server_id
+                ))
+
+        return choices[:25]  # Discord has a limit of 25 choices
 
         # Get detailed information about the command structure
         if "options" in interaction.data:

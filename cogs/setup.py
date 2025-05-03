@@ -165,20 +165,23 @@ async def server_id_autocomplete(interaction, current):
 
                     if guild_data and "servers" in guild_data:
                         # Get server data and ensure server_ids are strings
-                        servers = []
+                        seen_server_ids = set()  # Track processed server IDs to avoid duplicates
                         for server in guild_data["servers"]:
-                            server_copy = server.copy()  # Create a copy to avoid modifying original
+                            server_copy = server.copy()
                             if "server_id" in server_copy:
                                 server_copy["server_id"] = str(server_copy["server_id"])
-                            servers.append(server_copy)
-                        logger.info(f"Processed {len(servers)} servers for autocomplete")
+                                # Only add if we haven't seen this server ID before
+                                if server_copy["server_id"] not in seen_server_ids:
+                                    seen_server_ids.add(server_copy["server_id"])
+                                    servers.append(server_copy)
+                        logger.info(f"Processed {len(servers)} unique servers for autocomplete")
 
-                    # Update cache (even for forced fresh data - this keeps it fresh for next time)
+                    # Update cache with deduped servers
                     SERVER_CACHE[cache_key] = {
                         "timestamp": datetime.now(),
                         "servers": servers
                     }
-                    logger.info(f"Updated cache for guild {guild_id} with {len(servers)} servers")
+                    logger.info(f"Updated cache for guild {guild_id} with {len(servers)} unique servers")
                 except asyncio.TimeoutError:
                     logger.warning(f"Timeout in server_id_autocomplete cache refresh for guild {guild_id}")
                     # Provide empty results on timeout
@@ -187,34 +190,46 @@ async def server_id_autocomplete(interaction, current):
                     logger.error(f"Error refreshing guild data in autocomplete: {e}")
                     servers = []
 
-        # Filter servers based on current input
-        choices = []
-        for server in servers:
-            # Always ensure server_id is a string for consistent comparison
-            raw_server_id = server.get("server_id", "")
-            server_id = str(raw_server_id) if raw_server_id is not None else ""
+        # Add timeout protection for response
+        try:
+            # Filter servers based on current input
+            choices = []
+            for server in servers:
+                # Always ensure server_id is a string for consistent comparison
+                raw_server_id = server.get("server_id", "")
+                server_id = str(raw_server_id) if raw_server_id is not None else ""
 
-            # Log the type conversions for debugging
-            logger.debug(f"Autocomplete converting server_id from {type(raw_server_id).__name__} to string: {server_id}")
+            # Ensure we only process if interaction hasn't timed out
+            if not interaction.response.is_done():
+                for server in servers:
+                    # Always ensure server_id is a string for consistent comparison
+                    raw_server_id = server.get("server_id", "")
+                    server_id = str(raw_server_id) if raw_server_id is not None else ""
 
-            # Get proper server name, check both keys: 'name' and 'server_name'
-            server_name = server.get("server_name", server.get("name", "Unknown"))
+                    # Get proper server name, check both keys: 'name' and 'server_name'
+                    server_name = server.get("server_name", server.get("name", "Unknown"))
 
-            # Make sure we have a valid display name
-            if server_name == "Unknown" and server_id:
-                server_name = f"Server {server_id}"
+                    # Make sure we have a valid display name
+                    if server_name == "Unknown" and server_id:
+                        server_name = f"Server {server_id}"
 
-            # Check if current input matches server name or ID
-            # For empty input (very important for auto-complete), show all options
-            # For non-empty input, filter by server name or ID
-            if not current or current.lower() in server_name.lower() or current.lower() in server_id.lower():
-                # Format: "ServerName (ServerID)"
-                choices.append(app_commands.Choice(
-                    name=f"{server_name} ({server_id})",
-                    value=server_id  # Ensure this is a string
-                ))
+                    # Check if current input matches server name or ID
+                    # For empty input (very important for auto-complete), show all options
+                    # For non-empty input, filter by server name or ID
+                    if not current or current.lower() in server_name.lower() or current.lower() in server_id.lower():
+                        # Format: "ServerName (ServerID)"
+                        choices.append(app_commands.Choice(
+                            name=f"{server_name} ({server_id})",
+                            value=server_id  # Ensure this is a string
+                        ))
 
-        return choices[:25]  # Discord has a limit of 25 choices
+                return choices[:25]  # Discord has a limit of 25 choices
+        except asyncio.TimeoutError:
+            logger.warning("Autocomplete response timed out.")
+            return []
+        except Exception as e:
+            logger.error(f"Error in server_id_autocomplete: {e}", exc_info=True)
+            return []
 
     except Exception as e:
         logger.error(f"Error in server_id_autocomplete: {e}", exc_info=True)
@@ -687,7 +702,7 @@ class Setup(commands.Cog):
 
             # Step 1: Validate server ID and get server data
             await update_progress(progress_message, 1, 4, "Validating server configuration")
-            
+
             # Get server with timeout protection
             try:
                 async with asyncio.timeout(5.0):  # 5 second timeout
@@ -713,7 +728,7 @@ class Setup(commands.Cog):
 
             # Step 2: Prepare channel data
             await update_progress(progress_message, 2, 4, "Processing channel information")
-            
+
             update_data = {}
             channel_updates = []
 
@@ -746,7 +761,7 @@ class Setup(commands.Cog):
 
             # Step 3: Update database
             await update_progress(progress_message, 3, 4, "Updating database")
-            
+
             try:
                 async with asyncio.timeout(10.0):  # 10 second timeout for database operation
                     success = await server.update(update_data)
@@ -954,7 +969,7 @@ class Setup(commands.Cog):
                 update_data["events_channel_id"] = events_channel.id
                 logger.info(f"Setting events_channel_id to {update_data['events_channel_id']} (type: {type(update_data['events_channel_id']).__name__})")
                 update_desc.append(f"Events Channel: {events_channel.mention}")
-                
+
             if connections_channel:
                 update_data["connections_channel_id"] = connections_channel.id
                 logger.info(f"Setting connections_channel_id to {update_data['connections_channel_id']} (type: {type(update_data['connections_channel_id']).__name__})")
@@ -1526,7 +1541,7 @@ class Setup(commands.Cog):
                     # Parse lines
                     kill_events = CSVParser.parse_kill_lines(lines)
 
-                    # Log details about parsed events
+                    # Logdetails about parsed events
                     if len(kill_events) > 0:
                         logger.info(f"Successfully parsed {len(kill_events)} kill events from chunk of {len(lines)} lines")
                     else:

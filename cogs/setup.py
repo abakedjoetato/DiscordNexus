@@ -1222,7 +1222,7 @@ class Setup(commands.Cog):
                     filename = os.path.basename(file_path)
                     # Parse timestamp from filename (YYYY.MM.DD-HH.MM.SS)
                     timestamp_str = filename.split('.csv')[0]
-                    dt = datetime.datetime.strptime(timestamp_str, '%Y.%m.%d-%H.%M.%S')
+                    dt = datetime.strptime(timestamp_str, '%Y.%m.%d-%H.%M.%S')
                     sorted_files.append((file_path, dt.timestamp(), filename))
                     logger.info(f"Parsed CSV file: {filename} with timestamp {dt}")
                 except Exception as e:
@@ -1294,7 +1294,7 @@ class Setup(commands.Cog):
                 logger.info(f"Processing file {i+1}/{len(sorted_files)}: {file_path} (size: {file_size} lines)")
 
                 # Update initial progress
-                if i == 0 or (datetime.datetime.now() - last_progress_update).total_seconds() > 15:
+                if i == 0 or (datetime.now() - last_progress_update).total_seconds() > 15:
                     await update_progress(current_size, processed_files, total_kills, lines_processed=total_lines)
                     last_progress_update = datetime.now()
 

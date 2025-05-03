@@ -27,3 +27,4 @@ psycopg2-binary
 pymongo
 python-dotenv
 trafilatura
+trafilatura

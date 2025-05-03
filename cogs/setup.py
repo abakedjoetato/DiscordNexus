@@ -761,7 +761,12 @@ class Setup(commands.Cog):
             if events_channel:
                 update_data["events_channel_id"] = events_channel.id
                 logger.info(f"Setting events_channel_id to {update_data['events_channel_id']} (type: {type(update_data['events_channel_id']).__name__})")
-                update_desc.append(f"Events Channel: {events_channel.mention}")                update_desc.append(f"Connections Channel: {connections_channel.mention}")
+                update_desc.append(f"Events Channel: {events_channel.mention}")
+                
+            if connections_channel:
+                update_data["connections_channel_id"] = connections_channel.id
+                logger.info(f"Setting connections_channel_id to {update_data['connections_channel_id']} (type: {type(update_data['connections_channel_id']).__name__})")
+                update_desc.append(f"Connections Channel: {connections_channel.mention}")
 
             # Update voice status channel
             if voice_status_channel:

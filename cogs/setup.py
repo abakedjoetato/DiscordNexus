@@ -649,6 +649,188 @@ class Setup(commands.Cog):
                             connections_channel: discord.TextChannel = None,
                             economy_channel: discord.TextChannel = None,
                             voice_status_channel: discord.VoiceChannel = None):
+        """Configure notification channels for a server with optimized performance"""
+        try:
+            # Defer response immediately to prevent timeout
+            await ctx.defer()
+
+            # Initialize tracking for progress updates
+            async def update_progress(message, step, total_steps, current_action):
+                embed = discord.Embed(
+                    title="Setting Up Channels",
+                    description=f"Progress: {step}/{total_steps}\nCurrently: {current_action}",
+                    color=discord.Color.blue()
+                )
+                embed.set_footer(text="Please wait while channels are being configured...")
+                try:
+                    await message.edit(embed=embed)
+                except Exception as e:
+                    logger.warning(f"Could not update progress: {e}")
+
+            # Create initial progress message
+            progress_embed = discord.Embed(
+                title="Setting Up Channels",
+                description="Starting channel configuration...",
+                color=discord.Color.blue()
+            )
+            progress_message = await ctx.send(embed=progress_embed)
+
+            # Step 1: Validate server ID and get server data
+            await update_progress(progress_message, 1, 4, "Validating server configuration")
+            
+            # Get server with timeout protection
+            try:
+                async with asyncio.timeout(5.0):  # 5 second timeout
+                    server = await Server.get_by_id(self.bot.db, server_id, ctx.guild.id)
+                    if not server:
+                        raise ValueError(f"Server {server_id} not found")
+            except asyncio.TimeoutError:
+                embed = discord.Embed(
+                    title="Error",
+                    description="Database operation timed out. Please try again.",
+                    color=discord.Color.red()
+                )
+                await progress_message.edit(embed=embed)
+                return
+            except Exception as e:
+                embed = discord.Embed(
+                    title="Error",
+                    description=f"Failed to find server: {e}",
+                    color=discord.Color.red()
+                )
+                await progress_message.edit(embed=embed)
+                return
+
+            # Step 2: Prepare channel data
+            await update_progress(progress_message, 2, 4, "Processing channel information")
+            
+            update_data = {}
+            channel_updates = []
+
+            def safe_channel_id(channel):
+                return int(channel.id) if channel is not None else None
+
+            # Process each channel type
+            channels = {
+                "killfeed_channel_id": killfeed_channel,
+                "events_channel_id": events_channel,
+                "connections_channel_id": connections_channel,
+                "economy_channel_id": economy_channel,
+                "voice_status_channel_id": voice_status_channel
+            }
+
+            for channel_type, channel in channels.items():
+                if channel is not None:
+                    channel_id = safe_channel_id(channel)
+                    update_data[channel_type] = channel_id
+                    channel_updates.append(f"{channel_type.replace('_id', '')}: {channel.mention}")
+
+            if not update_data:
+                embed = discord.Embed(
+                    title="No Changes",
+                    description="No channel updates were provided.",
+                    color=discord.Color.orange()
+                )
+                await progress_message.edit(embed=embed)
+                return
+
+            # Step 3: Update database
+            await update_progress(progress_message, 3, 4, "Updating database")
+            
+            try:
+                async with asyncio.timeout(10.0):  # 10 second timeout for database operation
+                    success = await server.update(update_data)
+                    if not success:
+                        raise Exception("Failed to update server configuration")
+            except asyncio.TimeoutError:
+                embed = discord.Embed(
+                    title="Error",
+                    description="Database update timed out. Please try again.",
+                    color=discord.Color.red()
+                )
+                await progress_message.edit(embed=embed)
+                return
+            except Exception as e:
+                embed = discord.Embed(
+                    title="Error",
+                    description=f"Failed to update server: {e}",
+                    color=discord.Color.red()
+                )
+                await progress_message.edit(embed=embed)
+                return
+
+            # Step 4: Final success message
+            await update_progress(progress_message, 4, 4, "Finalizing configuration")
+
+            # Create success embed
+            success_embed = discord.Embed(
+                title="Channels Updated Successfully",
+                description=f"Channel configuration for {server.name} has been updated.",
+                color=discord.Color.green()
+            )
+
+            if channel_updates:
+                success_embed.add_field(
+                    name="Updated Channels",
+                    value="\n".join(channel_updates),
+                    inline=False
+                )
+
+            # Add next steps
+            success_embed.add_field(
+                name="Next Steps",
+                value="• Use `/killfeed start` to start kill notifications\n"
+                      "• Use `/events start` to start event monitoring\n"
+                      "• Use `/stats help` to learn about statistics commands",
+                inline=False
+            )
+
+            await progress_message.edit(embed=success_embed)
+
+            # Restart any active monitors to pick up new channel configuration
+            try:
+                # Get monitor task names
+                monitor_tasks = [
+                    f"killfeed_{ctx.guild.id}_{server_id}",
+                    f"events_{ctx.guild.id}_{server_id}"
+                ]
+
+                for task_name in monitor_tasks:
+                    if task_name in self.bot.background_tasks:
+                        task = self.bot.background_tasks[task_name]
+                        task.cancel()
+                        logger.info(f"Cancelled {task_name} for channel update")
+
+                        # Start new task based on type
+                        if "killfeed" in task_name:
+                            from cogs.killfeed import start_killfeed_monitor
+                            new_task = asyncio.create_task(
+                                start_killfeed_monitor(self.bot, ctx.guild.id, server_id)
+                            )
+                        else:
+                            from cogs.events import start_events_monitor
+                            new_task = asyncio.create_task(
+                                start_events_monitor(self.bot, ctx.guild.id, server_id)
+                            )
+
+                        self.bot.background_tasks[task_name] = new_task
+                        logger.info(f"Started new {task_name} with updated channel configuration")
+
+            except Exception as e:
+                logger.error(f"Error restarting monitors: {e}")
+                # Non-fatal error, continue
+
+        except Exception as e:
+            logger.error(f"Error in setup_channels: {e}", exc_info=True)
+            try:
+                error_embed = discord.Embed(
+                    title="Error",
+                    description=f"An unexpected error occurred: {e}",
+                    color=discord.Color.red()
+                )
+                await progress_message.edit(embed=error_embed)
+            except:
+                await ctx.send("An error occurred while setting up channels.")
         """Configure notification channels for a server"""
         # Start with detailed diagnostic logging for troubleshooting type inconsistency
         # This will help verify our fixes are working

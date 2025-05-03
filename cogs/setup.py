@@ -30,12 +30,12 @@ async def server_id_autocomplete(interaction, current):
     try:
         # Enhanced logging for debugging
         command_info = {}
-        
+
         # Extract the full command path and options data
         command_info["command_name"] = interaction.data.get("name", "unknown")
         command_info["focused_option"] = interaction.data.get("focused", "unknown")
         command_info["options_data"] = []
-        
+
         # Get detailed information about the command structure
         if "options" in interaction.data:
             # Log all options data
@@ -46,7 +46,7 @@ async def server_id_autocomplete(interaction, current):
                     "type": option.get("type", "unknown"),
                     "focused": option.get("focused", False)
                 }
-                
+
                 # If this option has suboptions (like a subcommand), extract those
                 if "options" in option:
                     option_data["sub_options"] = []
@@ -57,15 +57,15 @@ async def server_id_autocomplete(interaction, current):
                             "focused": sub_option.get("focused", False)
                         }
                         option_data["sub_options"].append(sub_option_data)
-                        
+
                 command_info["options_data"].append(option_data)
-        
+
         # Determine which subcommand we're in
         subcommand = None
         if command_info["command_name"] == "setup" and command_info["options_data"]:
             # The first option in setup commands is the subcommand
             subcommand = command_info["options_data"][0].get("name")
-        
+
         # Log extensive debug information
         logger.info(f"Autocomplete call for: {command_info['command_name']}")
         logger.info(f"Subcommand detected: {subcommand}")
@@ -73,7 +73,7 @@ async def server_id_autocomplete(interaction, current):
         logger.info(f"Focused option: {command_info['focused_option']}")
         logger.info(f"Full command data: {command_info}")
         logger.info(f"Guild ID: {interaction.guild_id}")
-        
+
         # Get user's guild ID
         guild_id = interaction.guild_id
 
@@ -84,16 +84,16 @@ async def server_id_autocomplete(interaction, current):
             first_option = command_info["options_data"][0]
             if isinstance(first_option, dict):
                 subcommand_detected = first_option.get("name")
-        
+
         # These commands always need fresh data from the database
         force_fresh_data = subcommand_detected in ["historicalparse", "diagnose", "removeserver", "setupchannels"]
-        
+
         # Log the detection information
         logger.info(f"Detected subcommand: {subcommand_detected}, forcing fresh data: {force_fresh_data}")
-        
+
         if force_fresh_data:
             logger.info(f"Bypassing cache for {subcommand_detected} command to ensure latest data")
-        
+
         # Get server data (either cached or fresh)
         cog = interaction.client.get_cog("Setup")
         if not cog:
@@ -136,7 +136,7 @@ async def server_id_autocomplete(interaction, current):
             # Try to get data from cache first (unless we're forcing fresh data)
             cache_key = f"servers_{guild_id}"
             cached_data = None if force_fresh_data else SERVER_CACHE.get(cache_key)
-            
+
             use_cache = (not force_fresh_data and 
                          cached_data and 
                          (datetime.now() - cached_data["timestamp"]).total_seconds() < SERVER_CACHE_TIMEOUT)
@@ -155,7 +155,7 @@ async def server_id_autocomplete(interaction, current):
                         logger.info("No cached data available, fetching fresh data")
                     else:
                         logger.info("Cache expired, fetching fresh data")
-                    
+
                     guild_data = await asyncio.wait_for(
                         cog.bot.db.guilds.find_one({"guild_id": guild_id}),
                         timeout=1.0  # 1 second timeout for autocomplete
@@ -184,7 +184,7 @@ async def server_id_autocomplete(interaction, current):
                             server["server_id"] = str(server["server_id"])
                             if old_id != server["server_id"]:
                                 logger.info(f"Converted server_id from {type(old_id).__name__} to string: {old_id} -> {server['server_id']}")
-                    
+
                     # Update cache (even for forced fresh data - this keeps it fresh for next time)
                     SERVER_CACHE[cache_key] = {
                         "timestamp": datetime.now(),
@@ -756,7 +756,7 @@ class Setup(commands.Cog):
 
             # Update killfeed channel
             if killfeed_channel:
-                update_data["killfeed_channel_id"] = int(killfeed_channel.id)
+                update_data["killfeed_channel_id"] = killfeed_channel.id
                 logger.info(f"Setting killfeed_channel_id to {update_data['killfeed_channel_id']} (type: {type(update_data['killfeed_channel_id']).__name__})")
                 update_desc.append(f"Killfeed Channel: {killfeed_channel.mention}")
 
@@ -771,19 +771,19 @@ class Setup(commands.Cog):
 
             # Update events channel
             if events_channel:
-                update_data["events_channel_id"] = int(events_channel.id)
+                update_data["events_channel_id"] = events_channel.id
                 logger.info(f"Setting events_channel_id to {update_data['events_channel_id']} (type: {type(update_data['events_channel_id']).__name__})")
                 update_desc.append(f"Events Channel: {events_channel.mention}")
 
             # Update connections channel
             if connections_channel:
-                update_data["connections_channel_id"] = int(connections_channel.id)
+                update_data["connections_channel_id"] = connections_channel.id
                 logger.info(f"Setting connections_channel_id to {update_data['connections_channel_id']} (type: {type(update_data['connections_channel_id']).__name__})")
                 update_desc.append(f"Connections Channel: {connections_channel.mention}")
 
             # Update voice status channel
             if voice_status_channel:
-                update_data["voice_status_channel_id"] = int(voice_status_channel.id)
+                update_data["voice_status_channel_id"] = voice_status_channel.id
                 logger.info(f"Setting voice_status_channel_id to {update_data['voice_status_channel_id']} (type: {type(update_data['voice_status_channel_id']).__name__})")
                 update_desc.append(f"Voice Status Channel: {voice_status_channel.mention}")
 
@@ -798,7 +798,7 @@ class Setup(commands.Cog):
                     await ctx.send(embed=embed)
                     return
 
-                update_data["economy_channel_id"] = int(economy_channel.id)
+                update_data["economy_channel_id"] = economy_channel.id
                 logger.info(f"Setting economy_channel_id to {update_data['economy_channel_id']} (type: {type(update_data['economy_channel_id']).__name__})")
                 update_desc.append(f"Economy Channel: {economy_channel.mention}")
 
@@ -1119,7 +1119,7 @@ class Setup(commands.Cog):
             # Get server
             server = None
             logger.info(f"Looking for server with ID '{server_id}' (type: {type(server_id).__name__}) in guild {ctx.guild.id}")
-            
+
             # Log all available servers for debugging
             available_servers = []
             for s in guild_data.get("servers", []):
@@ -1127,20 +1127,20 @@ class Setup(commands.Cog):
                 server_id_type = type(server_id_from_db).__name__
                 server_name = s.get("server_name", "Unknown")
                 available_servers.append(f"{server_name}: '{server_id_from_db}' (type: {server_id_type})")
-                
+
                 # Convert both to strings for comparison
                 db_id_str = str(server_id_from_db) if server_id_from_db is not None else ""
                 input_id_str = str(server_id) if server_id is not None else ""
-                
+
                 logger.info(f"Comparing server: DB ID='{db_id_str}' with input ID='{input_id_str}'")
-                
+
                 if db_id_str == input_id_str:
                     logger.info(f"Match found! Server '{server_name}' with ID '{db_id_str}'")
                     server = Server(self.bot.db, s)
                     break
                 else:
                     logger.debug(f"No match: DB ID '{db_id_str}' ≠ input ID '{input_id_str}'")
-            
+
             # Log available servers if none matched
             if not server:
                 logger.warning(f"No server found with ID '{server_id}'. Available servers: {available_servers}")
@@ -1347,12 +1347,12 @@ class Setup(commands.Cog):
                     for kill_event in kill_events:
                         # Add server ID
                         kill_event["server_id"] = server.id
-                        
+
                         # Ensure timestamp is serializable for MongoDB
                         # Convert datetime objects to ISO format strings
                         if isinstance(kill_event["timestamp"], datetime.datetime):
                             kill_event["timestamp"] = kill_event["timestamp"].isoformat()
-                            
+
                         kill_batch.append(kill_event)
 
                         # When batch is full, insert and process
@@ -1404,7 +1404,7 @@ class Setup(commands.Cog):
                     for event in kill_batch:
                         if isinstance(event.get("timestamp"), datetime):
                             event["timestamp"] = event["timestamp"].isoformat()
-                            
+
                     await self.bot.db.kills.insert_many(kill_batch)
 
                     # Update player stats (bulk operation)

@@ -650,7 +650,17 @@ class Setup(commands.Cog):
                             economy_channel: discord.TextChannel = None,
                             voice_status_channel: discord.VoiceChannel = None):
         """Configure notification channels for a server with optimized performance"""
+        # Initialize guild_model at the start to avoid UnboundLocalError
+        guild_model = None
         try:
+            # Get guild model for themed embed before any operations
+            try:
+                guild_data = await self.bot.db.guilds.find_one({"guild_id": ctx.guild.id})
+                if guild_data:
+                    guild_model = Guild(self.bot.db, guild_data)
+            except Exception as e:
+                logger.warning(f"Error getting guild model: {e}")
+
             # Defer response immediately to prevent timeout
             await ctx.defer()
 

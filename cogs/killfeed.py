@@ -732,9 +732,22 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
 async def process_kill_event(bot, server, kill_event, channel):
     """Process a kill event and update the database"""
     try:
-        # Create timestamp object if it's a string
+        # Ensure timestamp is consistent format for processing
+        # If it's a string, convert to datetime for processing
         if isinstance(kill_event["timestamp"], str):
-            kill_event["timestamp"] = datetime.fromisoformat(kill_event["timestamp"])
+            try:
+                # Try ISO format first (from historical parser)
+                kill_event["timestamp"] = datetime.fromisoformat(kill_event["timestamp"])
+            except ValueError:
+                # Try the CSV file format as fallback
+                try:
+                    kill_event["timestamp"] = datetime.strptime(
+                        kill_event["timestamp"], "%Y.%m.%d-%H.%M.%S"
+                    )
+                except ValueError:
+                    logger.warning(f"Could not parse timestamp: {kill_event['timestamp']}")
+                    # Use current time as last resort
+                    kill_event["timestamp"] = datetime.utcnow()
         
         # Add server_id to the event
         kill_event["server_id"] = server.id

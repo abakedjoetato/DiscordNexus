@@ -1214,6 +1214,12 @@ class Setup(commands.Cog):
                     for kill_event in kill_events:
                         # Add server ID
                         kill_event["server_id"] = server.id
+                        
+                        # Ensure timestamp is serializable for MongoDB
+                        # Convert datetime objects to ISO format strings
+                        if isinstance(kill_event["timestamp"], datetime.datetime):
+                            kill_event["timestamp"] = kill_event["timestamp"].isoformat()
+                            
                         kill_batch.append(kill_event)
 
                         # When batch is full, insert and process
@@ -1261,6 +1267,11 @@ class Setup(commands.Cog):
 
                 # Process any remaining events in the batch
                 if kill_batch:
+                    # Ensure all timestamps are serializable
+                    for event in kill_batch:
+                        if isinstance(event.get("timestamp"), datetime.datetime):
+                            event["timestamp"] = event["timestamp"].isoformat()
+                            
                     await self.bot.db.kills.insert_many(kill_batch)
 
                     # Update player stats (bulk operation)

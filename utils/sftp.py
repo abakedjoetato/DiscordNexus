@@ -72,6 +72,7 @@ class SFTPClient:
 
             # Ensure we have enough depth to reach CSV files (pattern: root/serverid/actual1/deathlogs/worldX/)
             self.max_search_depth = 6
+            self.world_dir_pattern = re.compile(r'^world_\d+$', re.IGNORECASE)
 
             items = await self._list_dir_safe(current_path)
             logger.info(f"Searching for server directory matching pattern: {server_pattern}")

@@ -165,11 +165,37 @@ class MissionTracker:
                 if group is not None:
                     return int(group)
         return None
+        
+    def _normalize_mission_location(self, mission_name: str) -> str:
+        """Convert internal mission location code to readable location name."""
+        if "GA_Military" in mission_name:
+            return "Military Base"
+        elif "GA_Airport" in mission_name:
+            return "Airfield"
+        elif "GA_Militia" in mission_name:
+            return "Militia Camp"
+        elif "GA_Industrial" in mission_name:
+            return "Industrial Zone"
+        elif "GA_Village" in mission_name:
+            return "Village"
+        elif "GA_Railway" in mission_name:
+            return "Railway Station"
+        elif "GA_Port" in mission_name:
+            return "Port"
+        elif "GA_Sawmill" in mission_name:
+            return "Sawmill"
+        elif "GA_Farm" in mission_name:
+            return "Farm"
+        # Return the original if no match
+        return mission_name
     
     def update_mission_state(self, timestamp: str, mission_name: str, state: str) -> dict:
         """Update mission state and record history."""
         # Extract mission level
         level = self._extract_mission_level(mission_name)
+        
+        # Get normalized location name
+        location = self._normalize_mission_location(mission_name)
         
         # READY state is most important for output, but also track state transitions
         is_important = (state == "READY") or (
@@ -184,6 +210,7 @@ class MissionTracker:
         event = {
             'timestamp': timestamp,
             'mission_name': mission_name,
+            'location': location,
             'state': state,
             'level': level,
             'is_important': is_important
@@ -678,6 +705,7 @@ class LogParser:
                     'timestamp': mission['timestamp'],
                     'event_type': 'mission',
                     'mission_name': mission['mission_name'],
+                    'location': mission.get('location', self.mission_tracker._normalize_mission_location(mission['mission_name'])),
                     'mission_level': mission['level'],
                     'state': mission['state']
                 })

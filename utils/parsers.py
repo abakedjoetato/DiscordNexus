@@ -150,27 +150,18 @@ class CSVParser:
                 else:
                     parts_with_placeholders.append("__EMPTY__")
             
-            # Check if this is a connection event (has empty killer fields AND empty victim fields)
-            # The format was mistakenly rejecting valid kill events with console information
-            if (len(raw_parts) >= 8 and 
-                (not raw_parts[1].strip() or raw_parts[1].isspace()) and 
-                (not raw_parts[2].strip() or raw_parts[2].isspace()) and
-                (not raw_parts[3].strip() or raw_parts[3].isspace()) and
-                (not raw_parts[4].strip() or raw_parts[4].isspace())):
-                
-                # This might be a connection event - check for console indicators
-                console_indicators = ["XSX", "PS5", "PC"]
-                
-                has_console_indicator = False
-                for indicator in console_indicators:
-                    # Check anywhere in raw parts for console indicators
-                    if any(indicator in part for part in raw_parts if part and part.strip()):
-                        has_console_indicator = True
-                        break
-                        
-                if has_console_indicator:
-                    logger.debug(f"Detected console connection line: {line}")
-                    return None  # Skip these lines as they're not actual kill events
+            # Connection events are not stored in CSV files at all
+            # We should only be looking for valid kill events here
+            
+            # Check if this line has required kill event fields (killer or victim must be present)
+            required_fields_missing = (
+                len(raw_parts) < 5 or
+                (not raw_parts[1].strip() and not raw_parts[3].strip())  # Both killer and victim empty
+            )
+            
+            if required_fields_missing:
+                logger.debug(f"Missing required kill event fields, skipping line: {line}")
+                return None
                     
             # Special logging for lines with console information
             if len(raw_parts) >= 8 and (

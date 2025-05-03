@@ -561,8 +561,10 @@ class SFTPClient:
 
             # Run the optimized counting with a longer timeout for more accurate results
             try:
+                # Convert file path to bytes if needed
+                path_bytes = file_path.encode('utf-8') if isinstance(file_path, str) else file_path
                 return await asyncio.wait_for(
-                    asyncio.to_thread(optimized_count),
+                    asyncio.to_thread(lambda: optimized_count(path_bytes)),
                     timeout=15.0  # Longer timeout for better accuracy
                 )
             except asyncio.TimeoutError:

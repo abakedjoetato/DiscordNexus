@@ -97,20 +97,23 @@ class SFTPClient:
                 return None
 
         try:
-            # Construct base path to deathlogs
+            # Construct base paths to check
             server_dir = f"{self.host.split(':')[0]}_{self.server_id}"
-            deathlogs_path = os.path.join(".", server_dir, "actual1", "deathlogs")
-
-            # If path doesn't exist, try without actual1
-            items = await self._list_dir_safe(deathlogs_path)
-            if not items:
-                deathlogs_path = os.path.join(".", server_dir, "deathlogs")
-                logger.info(f"Primary path not found, trying alternate path: {deathlogs_path}")
-
-            logger.info(f"Searching for CSV files in {deathlogs_path}")
-
-            # Find all CSV files recursively
-            csv_files = await self._find_csv_files_recursive(deathlogs_path)
+            paths_to_check = [
+                os.path.join(".", server_dir, "actual1", "deathlogs"),
+                os.path.join(".", server_dir, "deathlogs")
+            ]
+            
+            csv_files = []
+            for deathlogs_path in paths_to_check:
+                logger.info(f"Searching for CSV files in {deathlogs_path}")
+                items = await self._list_dir_safe(deathlogs_path)
+                if items:
+                    # Find all CSV files recursively in this path
+                    found_files = await self._find_csv_files_recursive(deathlogs_path)
+                    if found_files:
+                        csv_files.extend(found_files)
+                        logger.info(f"Found {len(found_files)} CSV files in {deathlogs_path}")
 
             if not csv_files:
                 logger.warning(f"No CSV files found in {deathlogs_path}")
@@ -149,7 +152,7 @@ class SFTPClient:
             logger.error(f"Error getting latest CSV file: {e}", exc_info=True)
             return None
 
-    async def _find_csv_files_recursive(self, directory, max_depth=8, current_depth=0):
+    async def _find_csv_files_recursive(self, directory, max_depth=12, current_depth=0):
         """Find all CSV files recursively with improved error handling"""
         if current_depth > max_depth:
             return []
@@ -161,10 +164,13 @@ class SFTPClient:
                 return []
 
             logger.info(f"Checking directory: {directory} (depth: {current_depth})")
-            logger.info(f"Found items: {items}")
-
-            # Process all items
-            for item in items:
+            
+            # Prioritize world directories and CSV files
+            world_dirs = [item for item in items if 'world' in item.lower()]
+            other_items = [item for item in items if item not in world_dirs]
+            
+            # Process world directories first
+            for item in world_dirs + other_items:
                 item_path = os.path.join(directory, item)
 
                 # Check if it's a CSV file
@@ -176,10 +182,17 @@ class SFTPClient:
                 # Check if it's a directory
                 try:
                     if await self._is_dir_safe(item_path):
+                        # Reduce depth counter for world directories to ensure full exploration
+                        effective_depth = current_depth
+                        if 'world' in item.lower():
+                            effective_depth = max(0, current_depth - 1)
+                            
                         subdir_files = await self._find_csv_files_recursive(
-                            item_path, max_depth, current_depth + 1
+                            item_path, max_depth, effective_depth
                         )
-                        csv_files.extend(subdir_files)
+                        if subdir_files:
+                            logger.info(f"Found {len(subdir_files)} CSV files in {item_path}")
+                            csv_files.extend(subdir_files)
                 except Exception as e:
                     logger.warning(f"Error checking subdirectory {item_path}: {e}")
 

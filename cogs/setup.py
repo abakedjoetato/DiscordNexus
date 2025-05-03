@@ -28,25 +28,73 @@ SERVER_CACHE_TIMEOUT = 300  # 5 minutes
 async def server_id_autocomplete(interaction, current):
     """Autocomplete for server selection by name, returns server_id as value"""
     try:
-        # Log details about the interaction for debugging
-        command_path = interaction.data.get("name", "unknown")
-        command_type = "unknown"
-        if command_path == "setup":
-            command_type = "setup_command"
-            if "options" in interaction.data:
-                for option in interaction.data.get("options", []):
-                    # Check if it's a setup subcommand that needs server selection
-                    subcommand = option.get("name", "")
-                    if subcommand in ["historicalparse", "diagnose", "setupchannels", "removeserver"]:
-                        command_type = f"setup_{subcommand}"
-                        command_path += f"/{subcommand}"
+        # Enhanced logging for debugging
+        command_info = {}
         
-        logger.info(f"Running autocomplete for {command_path} (type: {command_type})")
+        # Extract the full command path and options data
+        command_info["command_name"] = interaction.data.get("name", "unknown")
+        command_info["focused_option"] = interaction.data.get("focused", "unknown")
+        command_info["options_data"] = []
+        
+        # Get detailed information about the command structure
+        if "options" in interaction.data:
+            # Log all options data
+            options = interaction.data["options"]
+            for option in options:
+                option_data = {
+                    "name": option.get("name", "unknown"),
+                    "type": option.get("type", "unknown"),
+                    "focused": option.get("focused", False)
+                }
+                
+                # If this option has suboptions (like a subcommand), extract those
+                if "options" in option:
+                    option_data["sub_options"] = []
+                    for sub_option in option["options"]:
+                        sub_option_data = {
+                            "name": sub_option.get("name", "unknown"),
+                            "type": sub_option.get("type", "unknown"),
+                            "focused": sub_option.get("focused", False)
+                        }
+                        option_data["sub_options"].append(sub_option_data)
+                        
+                command_info["options_data"].append(option_data)
+        
+        # Determine which subcommand we're in
+        subcommand = None
+        if command_info["command_name"] == "setup" and command_info["options_data"]:
+            # The first option in setup commands is the subcommand
+            subcommand = command_info["options_data"][0].get("name")
+        
+        # Log extensive debug information
+        logger.info(f"Autocomplete call for: {command_info['command_name']}")
+        logger.info(f"Subcommand detected: {subcommand}")
+        logger.info(f"Current input: '{current}'")
+        logger.info(f"Focused option: {command_info['focused_option']}")
+        logger.info(f"Full command data: {command_info}")
+        logger.info(f"Guild ID: {interaction.guild_id}")
         
         # Get user's guild ID
         guild_id = interaction.guild_id
 
-        # Get cached server data or fetch it
+        # Determine if we need to bypass cache based on subcommand
+        # Safely get the subcommand name if available
+        subcommand_detected = None
+        if command_info["options_data"] and len(command_info["options_data"]) > 0:
+            first_option = command_info["options_data"][0]
+            if isinstance(first_option, dict):
+                subcommand_detected = first_option.get("name")
+        
+        # These commands always need fresh data from the database
+        force_fresh_data = subcommand_detected in ["historicalparse", "diagnose", "removeserver", "setupchannels"]
+        
+        # Log the detection information
+        logger.info(f"Detected subcommand: {subcommand_detected}, forcing fresh data: {force_fresh_data}")
+        
+        if force_fresh_data:
+            logger.info(f"Bypassing cache for {subcommand_detected} command to ensure latest data")
+        
+        # Get server data (either cached or fresh)
         cog = interaction.client.get_cog("Setup")
         if not cog:
             # Fall back to a simple fetch if cog not available
@@ -75,16 +123,29 @@ async def server_id_autocomplete(interaction, current):
                 logger.error(f"Error fetching guild data in autocomplete: {e}")
                 servers = []
         else:
-            # Try to get data from cache first
+            # Try to get data from cache first (unless we're forcing fresh data)
             cache_key = f"servers_{guild_id}"
-            cached_data = SERVER_CACHE.get(cache_key)
+            cached_data = None if force_fresh_data else SERVER_CACHE.get(cache_key)
+            
+            use_cache = (not force_fresh_data and 
+                         cached_data and 
+                         (datetime.datetime.now() - cached_data["timestamp"]).total_seconds() < SERVER_CACHE_TIMEOUT)
 
-            if cached_data and (datetime.datetime.now() - cached_data["timestamp"]).total_seconds() < SERVER_CACHE_TIMEOUT:
+            if use_cache:
                 # Use cached data if it's still valid
                 servers = cached_data["servers"]
+                logger.info(f"Using cached server data for guild {guild_id}: {len(servers)} servers")
             else:
                 # Fetch fresh data and update cache with timeout protection
                 try:
+                    # Log why we're fetching fresh data
+                    if force_fresh_data:
+                        logger.info(f"Fetching fresh server data for subcommand {subcommand_detected}")
+                    elif not cached_data:
+                        logger.info("No cached data available, fetching fresh data")
+                    else:
+                        logger.info("Cache expired, fetching fresh data")
+                    
                     guild_data = await asyncio.wait_for(
                         cog.bot.db.guilds.find_one({"guild_id": guild_id}),
                         timeout=1.0  # 1 second timeout for autocomplete
@@ -94,17 +155,22 @@ async def server_id_autocomplete(interaction, current):
                     if guild_data and "servers" in guild_data:
                         # Get server data
                         servers = guild_data["servers"]
+                        logger.info(f"Found {len(servers)} servers in fresh database query")
 
                     # Ensure all server_ids are strings
                     for server in servers:
                         if "server_id" in server:
+                            old_id = server["server_id"]
                             server["server_id"] = str(server["server_id"])
+                            if old_id != server["server_id"]:
+                                logger.info(f"Converted server_id from {type(old_id).__name__} to string: {old_id} -> {server['server_id']}")
                     
-                    # Update cache
+                    # Update cache (even for forced fresh data - this keeps it fresh for next time)
                     SERVER_CACHE[cache_key] = {
                         "timestamp": datetime.datetime.now(),
                         "servers": servers
                     }
+                    logger.info(f"Updated cache for guild {guild_id} with {len(servers)} servers")
                 except asyncio.TimeoutError:
                     logger.warning(f"Timeout in server_id_autocomplete cache refresh for guild {guild_id}")
                     # Provide empty results on timeout
@@ -131,7 +197,9 @@ async def server_id_autocomplete(interaction, current):
                 server_name = f"Server {server_id}"
 
             # Check if current input matches server name or ID
-            if current.lower() in server_name.lower() or current.lower() in server_id.lower():
+            # For empty input (very important for auto-complete), show all options
+            # For non-empty input, filter by server name or ID
+            if not current or current.lower() in server_name.lower() or current.lower() in server_id.lower():
                 # Format: "ServerName (ServerID)"
                 choices.append(app_commands.Choice(
                     name=f"{server_name} ({server_id})",

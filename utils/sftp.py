@@ -101,6 +101,12 @@ class SFTPClient:
             server_dir = f"{self.host.split(':')[0]}_{self.server_id}"
             deathlogs_path = os.path.join(".", server_dir, "actual1", "deathlogs")
 
+            # If path doesn't exist, try without actual1
+            items = await self._list_dir_safe(deathlogs_path)
+            if not items:
+                deathlogs_path = os.path.join(".", server_dir, "deathlogs")
+                logger.info(f"Primary path not found, trying alternate path: {deathlogs_path}")
+
             logger.info(f"Searching for CSV files in {deathlogs_path}")
 
             # Find all CSV files recursively

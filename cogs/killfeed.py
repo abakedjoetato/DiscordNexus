@@ -4,6 +4,7 @@ Killfeed commands and background tasks for monitoring kill feeds
 import logging
 import asyncio
 import time
+import os
 import discord
 from discord.ext import commands
 from discord import app_commands

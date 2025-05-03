@@ -351,7 +351,7 @@ class Economy(commands.Cog):
                 return
             
             # Get richest players
-            richest_players = await Economy.get_richest_players(self.bot.db, server_id, 10)
+            richest_players = await EconomyModel.get_richest_players(self.bot.db, server_id, 10)
             
             if not richest_players:
                 embed = EmbedBuilder.create_error_embed(

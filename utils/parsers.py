@@ -150,10 +150,14 @@ class CSVParser:
                 else:
                     parts_with_placeholders.append("__EMPTY__")
             
-            # Check if this is a connection event (has empty killer fields)
+            # Check if this is a connection event (has empty killer fields AND empty victim fields)
+            # The format was mistakenly rejecting valid kill events with console information
             if (len(raw_parts) >= 8 and 
                 (not raw_parts[1].strip() or raw_parts[1].isspace()) and 
-                (not raw_parts[2].strip() or raw_parts[2].isspace())):
+                (not raw_parts[2].strip() or raw_parts[2].isspace()) and
+                (not raw_parts[3].strip() or raw_parts[3].isspace()) and
+                (not raw_parts[4].strip() or raw_parts[4].isspace())):
+                
                 # This might be a connection event - check for console indicators
                 console_indicators = ["XSX", "PS5", "PC"]
                 
@@ -167,6 +171,12 @@ class CSVParser:
                 if has_console_indicator:
                     logger.debug(f"Detected console connection line: {line}")
                     return None  # Skip these lines as they're not actual kill events
+                    
+            # Special logging for lines with console information
+            if len(raw_parts) >= 8 and (
+                "XSX" in raw_parts[7] or "PS5" in raw_parts[7] or 
+                (len(raw_parts) > 8 and ("XSX" in raw_parts[8] or "PS5" in raw_parts[8]))):
+                logger.debug(f"Processing console kill event: {line}")
             
             # Extract fields with safer extraction
             try:
@@ -226,15 +236,29 @@ class CSVParser:
                     logger.error(f"Critical field timestamp missing, skipping line")
                     return None
             
-            # Parse timestamp
+            # Parse timestamp with improved error handling
             try:
-                timestamp = datetime.strptime(
+                # Try the standard format first
+                timestamp = datetime.datetime.strptime(
                     timestamp_str, "%Y.%m.%d-%H.%M.%S"
                 )
             except ValueError:
-                logger.warning(f"Invalid timestamp format: {timestamp_str}")
-                # Use current time as fallback
-                timestamp = datetime.utcnow()
+                # Try alternative formats if the standard format fails
+                try:
+                    # Try format with different separators
+                    timestamp = datetime.datetime.strptime(
+                        timestamp_str, "%Y-%m-%d-%H.%M.%S"
+                    )
+                except ValueError:
+                    try:
+                        # Try format with spaces instead of dashes
+                        timestamp = datetime.datetime.strptime(
+                            timestamp_str, "%Y.%m.%d %H.%M.%S"
+                        )
+                    except ValueError:
+                        logger.warning(f"Invalid timestamp format: {timestamp_str}")
+                        # Use current time as fallback
+                        timestamp = datetime.datetime.utcnow()
             
             # Determine if this is a suicide - only when killer ID equals victim ID
             is_suicide = killer_id == victim_id
@@ -259,11 +283,30 @@ class CSVParser:
             victim_console = ""
             
             # Check if console fields are present in raw parts (new format)
-            if len(raw_parts) > CSV_FIELDS["killer_console"]:
-                killer_console = raw_parts[CSV_FIELDS["killer_console"]].strip()
+            # Safer extraction of console information
+            killer_console = ""
+            victim_console = ""
+            killer_console_idx = CSV_FIELDS.get("killer_console", 7)
+            victim_console_idx = CSV_FIELDS.get("victim_console", 8)
             
-            if len(raw_parts) > CSV_FIELDS["victim_console"]:
-                victim_console = raw_parts[CSV_FIELDS["victim_console"]].strip()
+            if len(raw_parts) > killer_console_idx:
+                killer_console = raw_parts[killer_console_idx].strip()
+                
+                # Handle case where the value might be empty
+                if killer_console == "":
+                    # Default to empty rather than None
+                    killer_console = ""
+            
+            if len(raw_parts) > victim_console_idx:
+                victim_console = raw_parts[victim_console_idx].strip()
+                
+                # Handle case where the value might be empty  
+                if victim_console == "":
+                    # Default to empty rather than None
+                    victim_console = ""
+                    
+            # Log the console values for debugging
+            logger.debug(f"Console values: killer={killer_console}, victim={victim_console}")
             
             # Create kill event with console information
             kill_event = {

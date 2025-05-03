@@ -26,24 +26,24 @@ async def server_id_autocomplete(interaction, current):
     try:
         # Get user's guild ID
         guild_id = interaction.guild_id
-        
+
         # Get cached server data or fetch it
         cog = interaction.client.get_cog("Killfeed")
         if not cog:
             cog = interaction.client.get_cog("Stats")  # Fallback to Stats cog cache
-        
+
         if not cog or not hasattr(cog, "server_autocomplete_cache"):
             # Initialize cache if it doesn't exist
             if not hasattr(cog, "server_autocomplete_cache"):
                 cog.server_autocomplete_cache = {}
-        
+
         # Update cache if needed
         if guild_id not in cog.server_autocomplete_cache or \
            (datetime.now() - cog.server_autocomplete_cache.get(guild_id, {}).get("last_update", datetime.min)).total_seconds() > 300:
-            
+
             # Fetch guild data
             guild_data = await interaction.client.db.guilds.find_one({"guild_id": guild_id})
-            
+
             if guild_data and "servers" in guild_data:
                 # Update cache
                 cog.server_autocomplete_cache[guild_id] = {
@@ -56,36 +56,36 @@ async def server_id_autocomplete(interaction, current):
                     ],
                     "last_update": datetime.now()
                 }
-        
+
         # Get servers from cache
         servers = cog.server_autocomplete_cache.get(guild_id, {}).get("servers", [])
-        
+
         # Filter by current input
         filtered_servers = [
             app_commands.Choice(name=server['name'], value=server['id'])
             for server in servers
             if current.lower() in server['id'].lower() or current.lower() in server['name'].lower()
         ]
-        
+
         return filtered_servers[:25]
-        
+
     except Exception as e:
         logger.error(f"Error in server autocomplete: {e}", exc_info=True)
         return [app_commands.Choice(name="Error loading servers", value="error")]
 
 class Killfeed(commands.Cog):
     """Killfeed commands and background tasks"""
-    
+
     def __init__(self, bot):
         self.bot = bot
-    
+
     @commands.hybrid_group(name="killfeed", description="Killfeed commands")
     @commands.guild_only()
     async def killfeed(self, ctx):
         """Killfeed command group"""
         if ctx.invoked_subcommand is None:
             await ctx.send("Please specify a subcommand.")
-    
+
     @killfeed.command(name="start", description="Start monitoring killfeed for a server")
     @app_commands.describe(server_id="Select a server by name to monitor")
     @app_commands.autocomplete(server_id=server_id_autocomplete)
@@ -105,7 +105,7 @@ class Killfeed(commands.Cog):
             # Check permissions
             if not await self._check_permission(ctx):
                 return
-            
+
             # Get guild data
             guild_data = await self.bot.db.guilds.find_one({"guild_id": ctx.guild.id})
             if not guild_data:
@@ -115,14 +115,14 @@ class Killfeed(commands.Cog):
                 , guild=guild_model)
                 await ctx.send(embed=embed)
                 return
-            
+
             # Check if server exists in this guild
             server_exists = False
             for server in guild_data.get("servers", []):
                 if server.get("server_id") == server_id:
                     server_exists = True
                     break
-            
+
             if not server_exists:
                 embed = EmbedBuilder.create_error_embed(
                     "Error",
@@ -130,10 +130,10 @@ class Killfeed(commands.Cog):
                 , guild=guild_model)
                 await ctx.send(embed=embed)
                 return
-            
+
             # Start killfeed monitor
             task_name = f"killfeed_{ctx.guild.id}_{server_id}"
-            
+
             # Check if task is already running
             if task_name in self.bot.background_tasks:
                 # If task exists but is done, remove it
@@ -146,27 +146,27 @@ class Killfeed(commands.Cog):
                     , guild=guild_model)
                     await ctx.send(embed=embed)
                     return
-            
+
             # Create initial response
             embed = EmbedBuilder.create_base_embed(
                 "Starting Killfeed Monitor",
                 f"Starting killfeed monitor for server {server_id}..."
             , guild=guild_model)
             message = await ctx.send(embed=embed)
-            
+
             # Start the task
             task = asyncio.create_task(
                 start_killfeed_monitor(self.bot, ctx.guild.id, server_id)
             )
             self.bot.background_tasks[task_name] = task
-            
+
             # Add callback to handle completion
             task.add_done_callback(
                 lambda t: asyncio.create_task(
                     self._handle_task_completion(t, ctx.guild.id, server_id, message)
                 )
             )
-            
+
             # Update response after a short delay
             await asyncio.sleep(2)
             embed = EmbedBuilder.create_success_embed(
@@ -174,7 +174,7 @@ class Killfeed(commands.Cog):
                 f"Killfeed monitor for server {server_id} has been started successfully."
             , guild=guild_model)
             await message.edit(embed=embed)
-            
+
         except Exception as e:
             logger.error(f"Error starting killfeed monitor: {e}", exc_info=True)
             embed = EmbedBuilder.create_error_embed(
@@ -182,13 +182,13 @@ class Killfeed(commands.Cog):
                 f"An error occurred while starting the killfeed monitor: {e}"
             , guild=guild_model)
             await ctx.send(embed=embed)
-    
+
     @killfeed.command(name="stop", description="Stop monitoring killfeed for a server")
     @app_commands.describe(server_id="Select a server by name to stop monitoring")
     @app_commands.autocomplete(server_id=server_id_autocomplete)
     async def stop(self, ctx, server_id: str):
         """Stop the killfeed monitor for a server"""
-        
+
         try:
             # Get guild model for themed embed
             guild_data = None
@@ -203,7 +203,7 @@ class Killfeed(commands.Cog):
             # Check permissions
             if not await self._check_permission(ctx):
                 return
-            
+
             # Check if task is running
             task_name = f"killfeed_{ctx.guild.id}_{server_id}"
             if task_name not in self.bot.background_tasks:
@@ -213,21 +213,21 @@ class Killfeed(commands.Cog):
                 , guild=guild_model)
                 await ctx.send(embed=embed)
                 return
-            
+
             # Cancel the task
             task = self.bot.background_tasks[task_name]
             task.cancel()
-            
+
             # Remove the task
             self.bot.background_tasks.pop(task_name)
-            
+
             # Send success message
             embed = EmbedBuilder.create_success_embed(
                 "Killfeed Monitor Stopped",
                 f"Killfeed monitor for server {server_id} has been stopped successfully."
             , guild=guild_model)
             await ctx.send(embed=embed)
-            
+
         except Exception as e:
             logger.error(f"Error stopping killfeed monitor: {e}", exc_info=True)
             embed = EmbedBuilder.create_error_embed(
@@ -235,11 +235,11 @@ class Killfeed(commands.Cog):
                 f"An error occurred while stopping the killfeed monitor: {e}"
             , guild=guild_model)
             await ctx.send(embed=embed)
-    
+
     @killfeed.command(name="status", description="Check killfeed monitor status")
     async def status(self, ctx):
         """Check the status of killfeed monitors for this guild"""
-        
+
         try:
             # Get guild model for themed embed
             guild_data = None
@@ -260,7 +260,7 @@ class Killfeed(commands.Cog):
                 , guild=guild_model)
                 await ctx.send(embed=embed)
                 return
-            
+
             # Check running tasks for this guild
             running_monitors = []
             for task_name, task in self.bot.background_tasks.items():
@@ -268,27 +268,27 @@ class Killfeed(commands.Cog):
                     parts = task_name.split("_")
                     if len(parts) >= 3:
                         server_id = parts[2]
-                        
+
                         # Find server name
                         server_name = server_id
                         for server in guild_data.get("servers", []):
                             if server.get("server_id") == server_id:
                                 server_name = server.get("server_name", server_id)
                                 break
-                        
+
                         running_monitors.append({
                             "server_id": server_id,
                             "server_name": server_name,
                             "status": "Running" if not task.done() else "Completed"
                         })
-            
+
             # Create embed
             if running_monitors:
                 embed = EmbedBuilder.create_base_embed(
                     "Killfeed Monitor Status",
                     f"Currently running killfeed monitors for {ctx.guild.name}"
                 , guild=guild_model)
-                
+
                 for monitor in running_monitors:
                     embed.add_field(
                         name=f"{monitor['server_name']} ({monitor['server_id']})",
@@ -300,16 +300,16 @@ class Killfeed(commands.Cog):
                     "Killfeed Monitor Status",
                     f"No killfeed monitors are currently running for {ctx.guild.name}."
                 , guild=guild_model)
-                
+
                 # Add instructions
                 embed.add_field(
                     name="How to Start",
                     value="Use `/killfeed start server:<server_name>` to start monitoring a server.",
                     inline=False
                 )
-            
+
             await ctx.send(embed=embed)
-            
+
         except Exception as e:
             logger.error(f"Error checking killfeed status: {e}", exc_info=True)
             embed = EmbedBuilder.create_error_embed(
@@ -317,30 +317,30 @@ class Killfeed(commands.Cog):
                 f"An error occurred while checking killfeed status: {e}"
             , guild=guild_model)
             await ctx.send(embed=embed)
-    
+
     async def _check_permission(self, ctx) -> bool:
         """Check if user has permission to use the command"""
         # Initialize guild_model to None first to avoid UnboundLocalError
         guild_model = None
-        
+
         # Check if user has admin permission
         if has_admin_permission(ctx):
             return True
-        
+
         # If not, send error message
         # Get the guild model for theme
         try:
             guild_model = await Guild.get_by_id(self.bot.db, ctx.guild.id)
         except Exception as e:
             logger.warning(f"Error getting guild model in permission check: {e}")
-            
+
         embed = EmbedBuilder.create_error_embed(
             "Permission Denied",
             "You need administrator permission or the designated admin role to use this command.",
             guild=guild_model)
         await ctx.send(embed=embed, ephemeral=True)
         return False
-    
+
     async def _handle_task_completion(self, task, guild_id, server_id, message):
         """Handle completion of a background task"""
         try:
@@ -348,14 +348,14 @@ class Killfeed(commands.Cog):
             if task.cancelled():
                 logger.info(f"Killfeed monitor for server {server_id} was cancelled.")
                 return
-            
+
             # Check if task completed with an exception
             if task.exception():
                 logger.error(
                     f"Killfeed monitor for server {server_id} failed: {task.exception()}", 
                     exc_info=task.exception()
                 )
-                
+
                 # Update message if still exists
                 try:
                     # Find the guild for the server
@@ -364,7 +364,7 @@ class Killfeed(commands.Cog):
                         guild_model = None
                         if guild_data:
                             guild_model = Guild(self.bot.db, guild_data)
-                        
+
                         embed = EmbedBuilder.create_error_embed(
                             "Killfeed Monitor Failed",
                             f"The killfeed monitor for server {server_id} has failed: {task.exception()}",
@@ -380,12 +380,12 @@ class Killfeed(commands.Cog):
                     await message.edit(embed=embed)
                 except:
                     pass
-                
+
                 return
-            
+
             # Task completed normally
             logger.info(f"Killfeed monitor for server {server_id} completed successfully.")
-            
+
         except Exception as e:
             logger.error(f"Error handling task completion: {e}", exc_info=True)
 
@@ -393,34 +393,34 @@ class Killfeed(commands.Cog):
 async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
     """Background task to monitor killfeed for a server"""
     from config import KILLFEED_REFRESH_INTERVAL
-    
+
     # Initialize reconnection tracking
     reconnect_attempts = 0
     max_reconnect_attempts = 10
     backoff_time = 5  # Start with 5 seconds
     last_successful_connection = time.time()
-    
+
     # Check if we actually have server data in the database
     # This prevents errors when the bot starts up with empty database
     if await bot.db.guilds.count_documents({"guild_id": guild_id, "servers": {"$exists": True, "$ne": []}}) == 0:
         logger.warning(f"No servers found for guild {guild_id} - skipping killfeed monitor")
         return
-    
+
     # Check if guild exists in bot's cache
     discord_guild = bot.get_guild(int(guild_id))
     if not discord_guild:
         logger.error(f"Guild {guild_id} not found in bot's cache - skipping killfeed monitor")
         return
-    
+
     logger.info(f"Starting killfeed monitor for server {server_id} in guild {guild_id}")
-    
+
     try:
         # Get server data
         server = await Server.get_by_id(bot.db, server_id, guild_id)
         if not server:
             logger.error(f"Server {server_id} not found in guild {guild_id}")
             return
-            
+
         # Verify channel configuration
         killfeed_channel_id = server.killfeed_channel_id
         channel_configured = True
@@ -442,7 +442,7 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
             # Instead of returning, we'll continue but mark that we don't have a channel
             channel_configured = False
             logger.info(f"Continuing killfeed monitor for server {server_id} without a channel - data will be processed but not displayed")
-        
+
         # Create SFTP client connection
         sftp_client = SFTPClient(
             host=server.sftp_host,
@@ -451,7 +451,7 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
             password=server.sftp_password,
             server_id=server.id
         )
-        
+
         # Try to connect
         sftp_connected = False
         connected = await sftp_client.connect()
@@ -468,38 +468,38 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
             sftp_connected = False
         else:
             sftp_connected = True
-        
+
         # Store client for later use, even if not connected
         bot.sftp_connections[f"{guild_id}_{server_id}"] = sftp_client
-        
+
         # If not connected, we'll log it and try to reconnect periodically
         if not sftp_connected:
             logger.warning(f"Not connected to SFTP for server {server_id}, will attempt periodic reconnection")
-        
+
         # Get killfeed channel
         guild = bot.get_guild(guild_id)
         if not guild:
             logger.error(f"Guild {guild_id} not found - will continue processing data without sending Discord messages")
             # Don't return here, we'll still process data for when the guild is available later
-        
+
         killfeed_channel = None
         if channel_configured and guild:  # Only try to get the channel if guild exists
             killfeed_channel_id = server.killfeed_channel_id
             # Log channel ID details for diagnosis
             logger.info(f"Retrieved killfeed_channel_id: {killfeed_channel_id} (type: {type(killfeed_channel_id).__name__})")
-            
+
             # Ensure the channel ID is an integer
             try:
                 if killfeed_channel_id is not None:
-                    # Convert to int if it's not already
+                    # Convert to int if it's not already and handle string numbers
                     if not isinstance(killfeed_channel_id, int):
-                        killfeed_channel_id = int(killfeed_channel_id)
+                        killfeed_channel_id = int(str(killfeed_channel_id).strip())
                         logger.info(f"Converted killfeed_channel_id to int: {killfeed_channel_id}")
-                    
+
                     # Try to get the channel
                     killfeed_channel = guild.get_channel(killfeed_channel_id)
                     logger.info(f"Attempted to get channel: {killfeed_channel_id}, result: {killfeed_channel is not None}")
-                    
+
                     if not killfeed_channel:
                         try:
                             # Try to fetch channel through HTTP API in case it's not in cache
@@ -523,7 +523,7 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
         else:
             channel_configured = False
             logger.info(f"Guild or channel not available, continuing without killfeed channel for server {server_id}")
-        
+
         # Send initial notification to confirm monitor is running
         if channel_configured and killfeed_channel:
             try:
@@ -544,11 +544,11 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
                 logger.warning(f"Could not send startup notification: {notify_e}")
         else:
             logger.info(f"No killfeed channel configured for server {server_id}, monitoring will run silently until channel is configured")
-        
+
         # Main monitoring loop
         consecutive_errors = 0
         max_consecutive_errors = 5
-        
+
         while True:
             try:
                 # Get latest CSV file across ALL subdirectories
@@ -565,32 +565,32 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
                         last_successful_connection = time.time()
                     await asyncio.sleep(KILLFEED_REFRESH_INTERVAL)
                     continue
-                
+
                 # Log which directory the latest CSV file was found in
                 csv_dir = os.path.dirname(latest_csv)
                 logger.info(f"Found most recent CSV file in directory: {csv_dir}")
-                
+
                 # Get last processed line number
                 last_line = server.last_csv_line
-                
+
                 # Get total lines in the file with timeout protection
                 try:
                     total_lines = await sftp_client.get_file_size(
                         latest_csv,
                         chunk_size=5000  # Use a reasonable chunk size for better performance
                     )
-                    
+
                     # Reset consecutive errors on success
                     consecutive_errors = 0
                     reconnect_attempts = 0
                     backoff_time = 5
                     last_successful_connection = time.time()
-                    
+
                     # If no new lines, sleep and continue
                     if total_lines <= last_line:
                         await asyncio.sleep(KILLFEED_REFRESH_INTERVAL)
                         continue
-                        
+
                     # Read new lines with timeout protection
                     new_lines = await sftp_client.read_file(
                         latest_csv, 
@@ -614,19 +614,19 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
                     consecutive_errors += 1
                     await asyncio.sleep(KILLFEED_REFRESH_INTERVAL)
                     continue
-                
+
                 if not new_lines:
                     logger.debug(f"No new lines in CSV file for server {server_id}")
                     await asyncio.sleep(KILLFEED_REFRESH_INTERVAL)
                     continue
-                
+
                 # Parse new lines
                 kill_events = CSVParser.parse_kill_lines(new_lines)
-                
+
                 # Log successful parsing
                 if kill_events:
                     logger.info(f"Parsed {len(kill_events)} kill events from {len(new_lines)} lines for server {server_id}")
-                
+
                 # Process each kill event
                 processed_events = 0
                 # Always process kill events, even if no channel is configured
@@ -636,23 +636,23 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
                         processed_events += 1
                     except Exception as event_e:
                         logger.error(f"Error processing kill event: {event_e}", exc_info=True)
-                
+
                 # Update last processed line only if we successfully processed events
                 if processed_events > 0 or len(kill_events) == 0:
                     await server.update_last_csv_line(last_line + len(new_lines))
                     logger.info(f"Updated last CSV line to {last_line + len(new_lines)} for server {server_id}")
-                
+
                 # Reset consecutive errors on success
                 consecutive_errors = 0
-                
+
             except asyncio.CancelledError:
                 logger.info(f"Killfeed monitor for server {server_id} cancelled")
                 break
-                
+
             except Exception as e:
                 logger.error(f"Error in killfeed monitor for server {server_id}: {e}", exc_info=True)
                 consecutive_errors += 1
-                
+
                 # Attempt reconnection if we've had too many consecutive errors
                 if consecutive_errors >= max_consecutive_errors:
                     if reconnect_attempts < max_reconnect_attempts:
@@ -678,24 +678,24 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
                         except Exception:
                             pass  # Silently ignore if we can't message the owner
                         break
-            
+
             # Sleep before next check
             await asyncio.sleep(KILLFEED_REFRESH_INTERVAL)
-        
+
     except asyncio.CancelledError:
         logger.info(f"Killfeed monitor for server {server_id} cancelled")
-        
+
     except Exception as e:
         logger.error(f"Error in killfeed monitor for server {server_id}: {e}", exc_info=True)
-        
+
     finally:
         # Clean up resources
         if f"{guild_id}_{server_id}" in bot.sftp_connections:
             client = bot.sftp_connections.pop(f"{guild_id}_{server_id}")
             await client.disconnect()
-        
+
         logger.info(f"Killfeed monitor for server {server_id} stopped")
-        
+
         # Try to send notification that monitor has stopped
         try:
             guild = bot.get_guild(guild_id)
@@ -706,9 +706,9 @@ async def start_killfeed_monitor(bot, guild_id: int, server_id: str):
                         # Ensure channel ID is an integer
                         channel_id = server.killfeed_channel_id
                         if not isinstance(channel_id, int):
-                            channel_id = int(channel_id)
+                            channel_id = int(str(channel_id).strip())
                             logger.info(f"Converted killfeed shutdown notification channel_id to int: {channel_id}")
-                            
+
                         channel = guild.get_channel(channel_id)
                         if channel:
                             guild_model = await Guild.get_by_id(bot.db, guild_id)
@@ -749,13 +749,13 @@ async def process_kill_event(bot, server, kill_event, channel):
                     logger.warning(f"Could not parse timestamp: {kill_event['timestamp']}")
                     # Use current time as last resort
                     kill_event["timestamp"] = datetime.utcnow()
-        
+
         # Add server_id to the event
         kill_event["server_id"] = server.id
-        
+
         # Store in database
         await bot.db.kills.insert_one(kill_event)
-        
+
         # Check if this is a suicide and if notification is enabled
         is_suicide = kill_event.get("is_suicide", False)
         if is_suicide:
@@ -765,19 +765,21 @@ async def process_kill_event(bot, server, kill_event, channel):
                 # We still update player stats, but don't send a message
                 await update_player_stats(bot, server.id, kill_event)
                 return
-        
+
         # Get guild data for the server to check premium features
         guild_data = await bot.db.guilds.find_one({"servers.server_id": server.id})
         has_economy = False
         guild_model = None
-        
+
         if guild_data:
             guild_model = Guild(bot.db, guild_data)
             has_economy = guild_model.check_feature_access("economy")
-        
+        else:
+            has_economy = False
+
         # Create embed for the kill
         embed = EmbedBuilder.create_kill_embed(kill_event, guild=guild_model)
-        
+
         # Add economy notification placeholder if the guild has economy feature
         if has_economy and not is_suicide:
             embed.add_field(
@@ -785,11 +787,11 @@ async def process_kill_event(bot, server, kill_event, channel):
                 value="*Processing rewards...*",
                 inline=False
             )
-        
+
         # Get the icon file for the kill embed
         from utils.embed_icons import create_discord_file, KILLFEED_ICON
         icon_file = create_discord_file(KILLFEED_ICON)
-        
+
         # Send to channel with the icon file if channel exists
         kill_message = None
         if channel:
@@ -803,11 +805,11 @@ async def process_kill_event(bot, server, kill_event, channel):
                 logger.error(f"Error sending kill event to channel: {send_error}")
         else:
             # No channel to send to, but we still log this and continue processing
-            logger.info(f"Kill event processed but not displayed (no channel): {kill_event['killer_name']} killed {kill_event['victim_name']} with {kill_event['weapon']} from {kill_event.get('distance', 0)}m")
-        
+            logger.info(f"Kill event processed but not displayed (no channel): {kill_event['killer_name']} killed {kill_event['victim_name']} with {kill_event.get('weapon', 'unknown')} from {kill_event.get('distance', 0)}m")
+
         # Update player stats and get economy results
         await update_player_stats(bot, server.id, kill_event)
-        
+
         # Update the embed with economy info if applicable
         if has_economy:
             try:
@@ -816,19 +818,19 @@ async def process_kill_event(bot, server, kill_event, channel):
                     from models.economy import Economy
                     killer_id = kill_event["killer_id"]
                     killer_economy = await Economy.get_by_player(bot.db, killer_id, server.id)
-                    
+
                     if killer_economy:
                         # Get reward info
                         base_reward = 10
                         distance = kill_event.get("distance", 0)
-                        
+
                         if distance >= 100:
                             base_reward += min(int(distance / 10), 50)  # Cap bonus at +50 credits
-                        
+
                         # Get killer player for streak info
                         killer = await Player.get_by_id(bot.db, killer_id, server.id)
                         killstreak = killer.current_streak if killer else 0
-                        
+
                         # Calculate streak bonus
                         streak_bonus = 0
                         if killstreak == 5:
@@ -843,18 +845,18 @@ async def process_kill_event(bot, server, kill_event, channel):
                             streak_bonus = 300
                         elif killstreak >= 3:
                             streak_bonus = 15
-                        
+
                         # Update the embed with economy info
                         reward_text = f"+{base_reward} credits for kill"
-                        
+
                         if distance >= 100:
                             reward_text += f"\n+{min(int(distance / 10), 50)} distance bonus"
-                        
+
                         if streak_bonus > 0:
                             reward_text += f"\n+{streak_bonus} killstreak bonus (x{killstreak})"
-                            
+
                         reward_text += f"\nBalance: {await killer_economy.get_balance()} credits"
-                        
+
                         # Update the embed
                         embed.set_field_at(
                             index=embed.fields.index([f for f in embed.fields if f.name == "💰 Economy"][0]),
@@ -862,7 +864,7 @@ async def process_kill_event(bot, server, kill_event, channel):
                             value=reward_text,
                             inline=False
                         )
-                        
+
                         # Update the message if it exists
                         if kill_message:
                             await kill_message.edit(embed=embed)
@@ -870,7 +872,7 @@ async def process_kill_event(bot, server, kill_event, channel):
                             logger.debug(f"Economy info processed but message not updated (no channel): {kill_event['killer_name']} earned {base_reward + streak_bonus} credits")
             except Exception as e:
                 logger.error(f"Error updating economy info in embed: {e}", exc_info=True)
-        
+
     except Exception as e:
         logger.error(f"Error processing kill event: {e}", exc_info=True)
 
@@ -888,7 +890,7 @@ async def update_player_stats(bot, server_id, kill_event):
             "active": True
         }
         killer = await Player.create_or_update(bot.db, killer_data)
-        
+
         # Get or create victim player with direct database query to ensure fresh data
         victim_id = kill_event["victim_id"]
         victim_name = kill_event["victim_name"]
@@ -899,7 +901,7 @@ async def update_player_stats(bot, server_id, kill_event):
             "active": True
         }
         victim = await Player.create_or_update(bot.db, victim_data)
-        
+
         # Get guild data for the server to check premium features
         guild_data = await bot.db.guilds.find_one({"servers.server_id": server_id})
         if guild_data:
@@ -907,17 +909,17 @@ async def update_player_stats(bot, server_id, kill_event):
             has_economy = guild.check_feature_access("economy")
         else:
             has_economy = False
-        
+
         # Handle suicide case
         if kill_event["is_suicide"]:
             # For suicides, get fresh data to ensure stats are up to date
             victim = await Player.get_by_id(bot.db, victim_id, server_id)
             if not victim:
                 victim = await Player.create_or_update(bot.db, victim_data)
-                
+
             # Record the suicide
             suicide_result = await victim.record_suicide(kill_event["suicide_type"])
-            
+
             # Verify the suicide was recorded
             if not suicide_result:
                 logger.warning(f"Failed to record suicide for player {victim_name} ({victim_id}) - retrying with updated data")
@@ -925,7 +927,7 @@ async def update_player_stats(bot, server_id, kill_event):
                 victim = await Player.get_by_id(bot.db, victim_id, server_id)
                 if victim:
                     await victim.record_suicide(kill_event["suicide_type"])
-            
+
             # Economy penalty for suicide if enabled
             if has_economy:
                 from models.economy import Economy
@@ -939,12 +941,12 @@ async def update_player_stats(bot, server_id, kill_event):
             # For kills, get fresh data to ensure stats are up to date
             killer = await Player.get_by_id(bot.db, killer_id, server_id)
             victim = await Player.get_by_id(bot.db, victim_id, server_id)
-            
+
             if not killer:
                 killer = await Player.create_or_update(bot.db, killer_data)
             if not victim:
                 victim = await Player.create_or_update(bot.db, victim_data)
-                
+
             # Record kill for killer (with null checking)
             if killer and victim:
                 kill_result = await killer.record_kill(
@@ -953,7 +955,7 @@ async def update_player_stats(bot, server_id, kill_event):
                     weapon=kill_event["weapon"],
                     distance=kill_event["distance"]
                 )
-                
+
                 # Verify the kill was recorded
                 if not kill_result:
                     logger.warning(f"Failed to record kill for player {killer_name} ({killer_id}) - retrying with updated data")
@@ -981,14 +983,14 @@ async def update_player_stats(bot, server_id, kill_event):
                         weapon=kill_event["weapon"],
                         distance=kill_event["distance"]
                     )
-            
+
             # Record death for victim (with null checking)
             if victim and killer:
                 death_result = await victim.record_death(
                     killer_id=killer.id,
                     killer_name=killer.name
                 )
-                
+
                 # Verify the death was recorded
                 if not death_result:
                     logger.warning(f"Failed to record death for player {victim_name} ({victim_id}) - retrying with updated data")
@@ -1007,30 +1009,30 @@ async def update_player_stats(bot, server_id, kill_event):
                         killer_id=killer.id,
                         killer_name=killer.name
                     )
-            
+
             # Award currency for kill if economy feature is enabled
             if has_economy and killer and victim:  # Ensure both players exist before awarding currency
                 try:
                     from models.economy import Economy
-                    
+
                     # Get or create economy data for killer
                     killer_economy = await Economy.get_by_player(bot.db, killer.id, server_id)
                     if not killer_economy:
                         killer_economy = await Economy.create_or_update(bot.db, killer.id, server_id)
-                    
+
                     if killer_economy:  # Double-check that we have a valid economy object
                         # Base reward amount
                         reward_amount = 10
-                        
+
                         # Bonus for long-distance kills
                         distance = kill_event.get("distance", 0)
                         if distance >= 100:
                             reward_amount += min(int(distance / 10), 50)  # Cap bonus at +50 credits
-                        
+
                         # Bonus for killstreaks
                         if killer.current_streak > 1:
                             killstreak = killer.current_streak
-                            
+
                             # Escalating rewards for killstreaks
                             if killstreak == 5:
                                 streak_bonus = 25
@@ -1053,7 +1055,7 @@ async def update_player_stats(bot, server_id, kill_event):
                             else:
                                 streak_bonus = 0
                                 streak_type = None
-                            
+
                             # If there's a streak bonus, award it separately
                             if streak_bonus > 0 and streak_type:
                                 await killer_economy.add_currency(streak_bonus, streak_type, {
@@ -1061,7 +1063,7 @@ async def update_player_stats(bot, server_id, kill_event):
                                     "victim_id": victim.id,
                                     "victim_name": victim.name
                                 })
-                        
+
                         # Award base currency with kill details
                         await killer_economy.add_currency(reward_amount, "kill_reward", {
                             "victim_id": victim.id,
@@ -1076,14 +1078,14 @@ async def update_player_stats(bot, server_id, kill_event):
             elif has_economy:
                 logger.warning(f"Could not award currency: killer={killer is not None}, victim={victim is not None}")
 
-        
+
         # Explicitly update leaderboards by resetting cache
         # This is a workaround to ensure leaderboards reflect the new stats
         if hasattr(bot, "leaderboard_cache"):
             cache_key = f"leaderboard_{server_id}_kills"
             if cache_key in bot.leaderboard_cache:
                 del bot.leaderboard_cache[cache_key]
-                
+
     except Exception as e:
         logger.error(f"Error updating player stats: {e}", exc_info=True)
 

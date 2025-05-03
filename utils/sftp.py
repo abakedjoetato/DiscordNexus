@@ -103,7 +103,7 @@ class SFTPClient:
                 os.path.join(".", server_dir, "actual1", "deathlogs"),
                 os.path.join(".", server_dir, "deathlogs")
             ]
-            
+
             csv_files = []
             for deathlogs_path in paths_to_check:
                 logger.info(f"Searching for CSV files in {deathlogs_path}")
@@ -164,11 +164,11 @@ class SFTPClient:
                 return []
 
             logger.info(f"Checking directory: {directory} (depth: {current_depth})")
-            
+
             # Prioritize world directories and CSV files
             world_dirs = [item for item in items if 'world' in item.lower()]
             other_items = [item for item in items if item not in world_dirs]
-            
+
             # Process world directories first
             for item in world_dirs + other_items:
                 item_path = os.path.join(directory, item)
@@ -186,7 +186,7 @@ class SFTPClient:
                         effective_depth = current_depth
                         if 'world' in item.lower():
                             effective_depth = max(0, current_depth - 1)
-                            
+
                         subdir_files = await self._find_csv_files_recursive(
                             item_path, max_depth, effective_depth
                         )
@@ -453,7 +453,7 @@ class SFTPClient:
                 except Exception as line_err:
                     logger.warning(f"Error reading line: {line_err}")
                     continue  # Skip problematic lines but continue reading
-            
+
             logger.debug(f"Read {len(lines)} lines in chunk")
             return lines
         except Exception as e:
@@ -515,7 +515,7 @@ class SFTPClient:
                         total_lines = 0
                         read_bytes = 0
                         file_size = 0
-                        
+
                         # Get file size first
                         try:
                             file_size = self.sftp.stat(file_path).st_size
@@ -523,17 +523,17 @@ class SFTPClient:
                         except Exception as fs_err:
                             logger.warning(f"Error getting file size: {fs_err}")
                             file_size = 0
-                            
+
                         # Stop after reading more than 100MB to prevent timeouts on huge files
                         # This will provide a good estimate for large files
                         max_bytes_to_read = min(file_size, 100 * 1024 * 1024) if file_size > 0 else 10 * 1024 * 1024
-                        
+
                         # Read and count newlines in chunks
                         buffer = f.read(chunk_size)
                         while buffer:
                             read_bytes += len(buffer)
                             total_lines += buffer.count('\n')
-                            
+
                             # Break if we've read enough
                             if read_bytes >= max_bytes_to_read:
                                 # Estimate total based on portion read
@@ -544,14 +544,14 @@ class SFTPClient:
                                         logger.info(f"Estimated total lines for {file_path}: {estimated_total} based on {total_lines} in {read_bytes}/{file_size} bytes")
                                         return estimated_total
                                 break
-                                
+
                             # Read next chunk
                             buffer = f.read(chunk_size)
-                            
+
                         # Add 1 if last line doesn't end with newline (but not if file is empty)
                         if buffer and not buffer.endswith('\n'):
                             total_lines += 1
-                            
+
                         logger.info(f"Counted {total_lines} lines in {file_path}")
                         return total_lines
                 except Exception as e:

@@ -1,41 +1,30 @@
 """
-Main entry point for the Tower of Temptation PvP Stats Discord Bot.
-This file initializes the bot and database connection.
+Powered By Discord.gg/EmeraldServers Discord Bot
+Main file that handles both the Discord bot and the web app
 """
-import asyncio
-import logging
 import os
-from bot import bot
-import database
+import threading
+import subprocess
+from flask import Flask, render_template
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
-logger = logging.getLogger(__name__)
+# Create the Flask app to satisfy Replit's hosting requirements
+app = Flask(__name__)
 
-async def main():
-    """Initialize the application and start the bot."""
-    try:
-        # Initialize database
-        await database.initialize()
-        logger.info("Database connection established")
-        
-        # Start the bot with token from environment
-        token = os.getenv("DISCORD_TOKEN")
-        if not token:
-            raise ValueError("DISCORD_TOKEN environment variable not set")
-        
-        logger.info("Starting bot...")
-        await bot.start(token)
-    except Exception as e:
-        logger.error(f"Error starting application: {e}")
-        raise
+@app.route('/')
+def index():
+    """Display a simple web page explaining that this is a Discord bot"""
+    return render_template('index.html')
+
+# Start the Discord bot in a separate thread
+def start_discord_bot():
+    """Start the Discord bot as a separate process"""
+    subprocess.call(["python", "clone_bot.py"])
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Bot shutting down...")
+    # Start the Discord bot in a background thread
+    bot_thread = threading.Thread(target=start_discord_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+    
+    # Start the Flask app 
+    app.run(host='0.0.0.0', port=5000)

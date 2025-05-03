@@ -235,7 +235,7 @@ class Setup(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send("Please specify a subcommand.")
 
-    @setup.command(name="addserver")
+    @setup.command(name="addserver", description="Add a game server to track PvP stats")
     @app_commands.describe(
         server_name="Friendly name to display for this server",
         host="SFTP host address",
@@ -245,9 +245,6 @@ class Setup(commands.Cog):
         server_id="Unique ID for the server (letters, numbers, underscores only)"
     )
     @app_commands.guild_only()
-    async def add_server(self, ctx, server_name: str, host: str, port: int, username: str, password: str, server_id: str):
-
-    @setup.command(name="addserver", description="Add a game server to track PvP stats")
     @app_commands.describe(
         server_name="Friendly name to display for this server",
         host="SFTP host address",

@@ -561,6 +561,20 @@ class SFTPClient:
 
             # Run the optimized counting with a longer timeout for more accurate results
             try:
+                def optimized_count(path):
+                    try:
+                        with self.sftp.file(path, 'r') as f:
+                            chunk_size = 1024 * 1024  # 1MB chunks
+                            total_lines = 0
+                            buffer = f.read(chunk_size)
+                            while buffer:
+                                total_lines += buffer.count(b'\n')
+                                buffer = f.read(chunk_size)
+                            return total_lines + (0 if not buffer or buffer.endswith(b'\n') else 1)
+                    except Exception as e:
+                        logger.error(f"Error in optimized count: {e}")
+                        return 600  # Default if counting fails
+
                 # Convert file path to bytes if needed
                 path_bytes = file_path.encode('utf-8') if isinstance(file_path, str) else file_path
                 return await asyncio.wait_for(

@@ -89,12 +89,36 @@ class SFTPClient:
             logger.error(f"Error finding root path: {e}", exc_info=True)
             self.root_path = '.'
 
+    def __init__(self, host, port, username, password, server_id):
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.server_id = server_id
+        self.client = None
+        self.sftp = None
+        self.root_path = None
+        self.connected = False
+        self.last_error = None
+        self._csv_cache = {}
+        self._csv_cache_time = 0
+        self._csv_cache_duration = 300  # Cache CSV file list for 5 minutes
+
     async def get_latest_csv_file(self):
-        """Get the most recent CSV file from any subdirectory"""
+        """Get the most recent CSV file from any subdirectory with caching"""
         if not self.connected:
             await self.connect()
             if not self.connected:
                 return None
+
+        current_time = time.time()
+        
+        # Check cache validity
+        if (self._csv_cache and 
+            current_time - self._csv_cache_time < self._csv_cache_duration):
+            logger.debug("Using cached CSV file list")
+            if self._csv_cache.get('latest'):
+                return self._csv_cache['latest']
 
         try:
             # Construct base paths to check
@@ -105,15 +129,52 @@ class SFTPClient:
             ]
 
             csv_files = []
+            paths_checked = set()
+            
+            async def check_path(base_path, depth=0):
+                if depth > 10 or base_path in paths_checked:  # Prevent infinite recursion
+                    return []
+                
+                paths_checked.add(base_path)
+                found_files = []
+                
+                try:
+                    items = await self._list_dir_safe(base_path)
+                    if not items:
+                        return []
+
+                    # First pass: Look for world directories and CSV files
+                    for item in items:
+                        full_path = os.path.join(base_path, item)
+                        
+                        if re.match(CSV_FILENAME_PATTERN, item):
+                            found_files.append(full_path)
+                            continue
+                            
+                        if 'world' in item.lower():
+                            subdir_files = await check_path(full_path, depth + 1)
+                            found_files.extend(subdir_files)
+
+                    # Second pass: Check other directories if we haven't found files
+                    if not found_files:
+                        for item in items:
+                            full_path = os.path.join(base_path, item)
+                            if await self._is_dir_safe(full_path) and 'world' not in item.lower():
+                                subdir_files = await check_path(full_path, depth + 1)
+                                found_files.extend(subdir_files)
+
+                except Exception as e:
+                    logger.warning(f"Error checking path {base_path}: {e}")
+
+                return found_files
+
+            # Check all potential paths
             for deathlogs_path in paths_to_check:
                 logger.info(f"Searching for CSV files in {deathlogs_path}")
-                items = await self._list_dir_safe(deathlogs_path)
-                if items:
-                    # Find all CSV files recursively in this path
-                    found_files = await self._find_csv_files_recursive(deathlogs_path)
-                    if found_files:
-                        csv_files.extend(found_files)
-                        logger.info(f"Found {len(found_files)} CSV files in {deathlogs_path}")
+                found_files = await check_path(deathlogs_path)
+                if found_files:
+                    csv_files.extend(found_files)
+                    logger.info(f"Found {len(found_files)} CSV files in {deathlogs_path}")
 
             if not csv_files:
                 logger.warning(f"No CSV files found in {deathlogs_path}")
@@ -560,30 +621,75 @@ class SFTPClient:
                     # Use a reasonable default based on typical CSV files
                     return 600  # Typical line count for a CSV file
 
-            # Run the optimized counting with a longer timeout for more accurate results
+            # Implement an optimized hybrid counting approach
             try:
-                async def optimized_count():
+                async def count_lines_fast():
                     try:
-                        async with asyncio.timeout(10):  # 10 second timeout for file operations
-                            # Use a binary file handle for better performance
+                        # First attempt: Use wc -l through SSH if available
+                        if self.client:
+                            try:
+                                stdin, stdout, stderr = await asyncio.wait_for(
+                                    asyncio.to_thread(
+                                        lambda: self.client.exec_command(f"wc -l '{file_path}'", timeout=5.0)
+                                    ),
+                                    timeout=5.0
+                                )
+                                result = await asyncio.to_thread(lambda: stdout.read().decode().strip())
+                                if result and ' ' in result:
+                                    count = int(result.split(' ')[0])
+                                    logger.info(f"Fast count successful for {file_path}: {count} lines")
+                                    return count
+                            except Exception as e:
+                                logger.debug(f"Fast count failed, falling back to direct read: {e}")
+
+                        # Second attempt: Direct binary read with chunking
+                        async with asyncio.timeout(10.0):
+                            chunk_size = 1024 * 1024  # 1MB chunks
+                            total_lines = 0
+                            read_size = 0
+                            max_read = 100 * 1024 * 1024  # 100MB read limit for large files
+
                             with self.sftp.file(file_path, 'rb') as f:
-                                chunk_size = 1024 * 1024  # 1MB chunks
-                                total_lines = 0
-                                buffer = f.read(chunk_size)
-                                while buffer:
-                                    total_lines += buffer.count(b'\n')
-                                    buffer = f.read(chunk_size)
-                                return total_lines + (0 if not buffer or buffer.endswith(b'\n') else 1)
+                                try:
+                                    # Get file size for progress tracking
+                                    file_size = self.sftp.stat(file_path).st_size
+                                except:
+                                    file_size = 0
+
+                                while True:
+                                    chunk = f.read(chunk_size)
+                                    if not chunk:
+                                        break
+                                        
+                                    read_size += len(chunk)
+                                    total_lines += chunk.count(b'\n')
+
+                                    # Stop if we've read enough
+                                    if read_size >= max_read:
+                                        # Estimate total based on file size
+                                        if file_size > read_size:
+                                            ratio = file_size / read_size
+                                            total_lines = int(total_lines * ratio)
+                                        break
+
+                                # Add 1 if file doesn't end with newline
+                                if chunk and not chunk.endswith(b'\n'):
+                                    total_lines += 1
+
+                            logger.info(f"Direct count successful for {file_path}: {total_lines} lines")
+                            return total_lines
+
                     except asyncio.TimeoutError:
-                        logger.warning(f"Timeout during line counting for {file_path}")
+                        logger.warning(f"Timeout counting lines in {file_path}")
                         return 600
                     except Exception as e:
-                        logger.error(f"Error in optimized count: {e}")
-                        return 600  # Default if counting fails
+                        logger.error(f"Error counting lines: {e}")
+                        return 600
 
+                # Execute the counting with timeout protection
                 return await asyncio.wait_for(
-                    asyncio.to_thread(lambda: optimized_count(path_bytes)),
-                    timeout=15.0  # Longer timeout for better accuracy
+                    count_lines_fast(),
+                    timeout=15.0
                 )
             except asyncio.TimeoutError:
                 # Use stats-based estimation as fallback

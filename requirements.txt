@@ -15,3 +15,15 @@ flask
 psutil
 psutil
 psutil
+discord-py
+email-validator
+flask
+flask-sqlalchemy
+gunicorn
+motor
+paramiko
+psutil
+psycopg2-binary
+pymongo
+python-dotenv
+trafilatura

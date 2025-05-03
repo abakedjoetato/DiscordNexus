@@ -129,7 +129,7 @@ async def server_id_autocomplete(interaction, current):
             
             use_cache = (not force_fresh_data and 
                          cached_data and 
-                         (datetime.datetime.now() - cached_data["timestamp"]).total_seconds() < SERVER_CACHE_TIMEOUT)
+                         (datetime.now() - cached_data["timestamp"]).total_seconds() < SERVER_CACHE_TIMEOUT)
 
             if use_cache:
                 # Use cached data if it's still valid
@@ -167,7 +167,7 @@ async def server_id_autocomplete(interaction, current):
                     
                     # Update cache (even for forced fresh data - this keeps it fresh for next time)
                     SERVER_CACHE[cache_key] = {
-                        "timestamp": datetime.datetime.now(),
+                        "timestamp": datetime.now(),
                         "servers": servers
                     }
                     logger.info(f"Updated cache for guild {guild_id} with {len(servers)} servers")
@@ -1359,7 +1359,7 @@ class Setup(commands.Cog):
                     logger.info(f"Processing performance - Lines/sec: {lines_per_second:.2f}, Memory usage: {psutil.Process().memory_info().rss / 1024 / 1024:.2f}MB")
 
                     # Update progress every 60 seconds or every 3 chunks
-                    if (datetime.datetime.now() - last_progress_update).total_seconds() > 60 or chunk % 3 == 0:
+                    if (datetime.now() - last_progress_update).total_seconds() > 60 or chunk % 3 == 0:
                         # Calculate ETA
                         if current_size > 0:
                             elapsed = (datetime.now() - start_time).total_seconds()
@@ -1382,7 +1382,7 @@ class Setup(commands.Cog):
                 if kill_batch:
                     # Ensure all timestamps are serializable
                     for event in kill_batch:
-                        if isinstance(event.get("timestamp"), datetime.datetime):
+                        if isinstance(event.get("timestamp"), datetime):
                             event["timestamp"] = event["timestamp"].isoformat()
                             
                     await self.bot.db.kills.insert_many(kill_batch)

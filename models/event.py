@@ -25,10 +25,21 @@ class Event:
     async def create(cls, db, event_data: Dict[str, Any]) -> 'Event':
         """Create a new event"""
         # Required fields
-        required_fields = ["server_id", "event_type", "timestamp"]
+        required_fields = ["server_id", "timestamp"]
         for field in required_fields:
             if field not in event_data:
                 raise ValueError(f"Missing required field: {field}")
+
+        # Copy data to avoid modifying original
+        event_data = event_data.copy()
+        
+        # Ensure event_type is set
+        if "type" in event_data and "event_type" not in event_data:
+            event_data["event_type"] = event_data["type"]
+        
+        # Convert timestamp to datetime if it's a string
+        if isinstance(event_data["timestamp"], str):
+            event_data["timestamp"] = datetime.fromisoformat(event_data["timestamp"])
         
         # Set created timestamp
         event_data["created_at"] = datetime.utcnow().isoformat()

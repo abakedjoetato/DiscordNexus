@@ -1505,7 +1505,7 @@ async def process_event(bot, server, event_data, channel):
         event = await Event.create(bot.db, event_data)
 
         # Check if this type of event notification is enabled
-        event_type = event_data.get("type")
+        event_type = event_data.get("event_type") or event_data.get("type")
         if event_type in server.event_notifications and not server.event_notifications.get(event_type, True):
             logger.debug(f"Skipping notification for {event_type} event as it's disabled for server {server.id}")
             return

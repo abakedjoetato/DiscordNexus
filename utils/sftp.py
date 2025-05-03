@@ -69,7 +69,10 @@ class SFTPClient:
             # Create pattern for server directory
             ip_address = self.host.split(':')[0]
             server_pattern = f"{ip_address}_{self.server_id}"
-
+            
+            # Ensure we have enough depth to reach CSV files (pattern: root/serverid/actual1/deathlogs/worldX/)
+            self.max_search_depth = 6
+            
             items = await self._list_dir_safe(current_path)
             logger.info(f"Searching for server directory matching pattern: {server_pattern}")
             logger.info(f"Found items in root: {items}")
@@ -213,7 +216,7 @@ class SFTPClient:
             logger.error(f"Error getting latest CSV file: {e}", exc_info=True)
             return None
 
-    async def _find_csv_files_recursive(self, directory, max_depth=12, current_depth=0):
+    async def _find_csv_files_recursive(self, directory, max_depth=6, current_depth=0):
         """Find all CSV files recursively with improved error handling"""
         if current_depth > max_depth:
             return []

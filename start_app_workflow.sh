@@ -1,3 +1,3 @@
 #!/bin/bash
-# Run the Discord bot directly
-python3 run_discord_bot.py
+# Run both the web app and Discord bot
+python3 main.py

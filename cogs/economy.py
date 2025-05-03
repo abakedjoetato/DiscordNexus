@@ -9,7 +9,7 @@ from typing import Optional
 import random
 from datetime import datetime
 
-from models.economy import Economy
+from models.economy import Economy as EconomyModel
 from models.guild import Guild
 from utils.embed_builder import EmbedBuilder
 from utils.gambling import BlackjackGame, BlackjackView, SlotsView
@@ -137,11 +137,11 @@ class Economy(commands.Cog):
             
             # Get player data
             player_id = str(ctx.author.id)
-            economy = await Economy.get_by_player(self.bot.db, player_id, server_id)
+            economy = await EconomyModel.get_by_player(self.bot.db, player_id, server_id)
             
             if not economy:
                 # Create new economy account
-                economy = await Economy.create_or_update(self.bot.db, player_id, server_id)
+                economy = await EconomyModel.create_or_update(self.bot.db, player_id, server_id)
             
             # Get player balance
             balance = await economy.get_balance()
@@ -253,11 +253,11 @@ class Economy(commands.Cog):
             
             # Get player data
             player_id = str(ctx.author.id)
-            economy = await Economy.get_by_player(self.bot.db, player_id, server_id)
+            economy = await EconomyModel.get_by_player(self.bot.db, player_id, server_id)
             
             if not economy:
                 # Create new economy account
-                economy = await Economy.create_or_update(self.bot.db, player_id, server_id)
+                economy = await EconomyModel.create_or_update(self.bot.db, player_id, server_id)
             
             # Calculate daily reward based on premium tier
             daily_amount = 100
@@ -467,11 +467,11 @@ class Economy(commands.Cog):
             
             # Get player data
             player_id = str(ctx.author.id)
-            economy = await Economy.get_by_player(self.bot.db, player_id, server_id)
+            economy = await EconomyModel.get_by_player(self.bot.db, player_id, server_id)
             
             if not economy:
                 # Create new economy account
-                economy = await Economy.create_or_update(self.bot.db, player_id, server_id)
+                economy = await EconomyModel.create_or_update(self.bot.db, player_id, server_id)
             
             # Check if player has enough credits
             balance = await economy.get_balance()
@@ -598,11 +598,11 @@ class Economy(commands.Cog):
             
             # Get player data
             player_id = str(ctx.author.id)
-            economy = await Economy.get_by_player(self.bot.db, player_id, server_id)
+            economy = await EconomyModel.get_by_player(self.bot.db, player_id, server_id)
             
             if not economy:
                 # Create new economy account
-                economy = await Economy.create_or_update(self.bot.db, player_id, server_id)
+                economy = await EconomyModel.create_or_update(self.bot.db, player_id, server_id)
             
             # Check if player has enough credits
             balance = await economy.get_balance()
@@ -719,11 +719,11 @@ class Economy(commands.Cog):
             
             # Get player data
             player_id = str(ctx.author.id)
-            player_economy = await Economy.get_by_player(self.bot.db, player_id, server_id)
+            player_economy = await EconomyModel.get_by_player(self.bot.db, player_id, server_id)
             
             if not player_economy:
                 # Create new economy account
-                player_economy = await Economy.create_or_update(self.bot.db, player_id, server_id)
+                player_economy = await EconomyModel.create_or_update(self.bot.db, player_id, server_id)
             
             # Check if player has enough credits
             balance = await player_economy.get_balance()
@@ -737,11 +737,11 @@ class Economy(commands.Cog):
             
             # Get recipient data
             recipient_id = str(user.id)
-            recipient_economy = await Economy.get_by_player(self.bot.db, recipient_id, server_id)
+            recipient_economy = await EconomyModel.get_by_player(self.bot.db, recipient_id, server_id)
             
             if not recipient_economy:
                 # Create new economy account for recipient
-                recipient_economy = await Economy.create_or_update(self.bot.db, recipient_id, server_id)
+                recipient_economy = await EconomyModel.create_or_update(self.bot.db, recipient_id, server_id)
             
             # Transfer credits
             await player_economy.remove_currency(amount, "transfer", {"recipient_id": recipient_id, "recipient_name": user.name})
@@ -849,11 +849,11 @@ class Economy(commands.Cog):
             
             # Get player data
             player_id = str(user.id)
-            economy = await Economy.get_by_player(self.bot.db, player_id, server_id)
+            economy = await EconomyModel.get_by_player(self.bot.db, player_id, server_id)
             
             if not economy:
                 # Create new economy account
-                economy = await Economy.create_or_update(self.bot.db, player_id, server_id)
+                economy = await EconomyModel.create_or_update(self.bot.db, player_id, server_id)
                 
             # Get initial balance for reporting
             initial_balance = await economy.get_balance()
@@ -990,11 +990,11 @@ class Economy(commands.Cog):
 
             # Get player data
             player_id = str(target_user.id)
-            economy = await Economy.get_by_player(self.bot.db, player_id, server_id)
+            economy = await EconomyModel.get_by_player(self.bot.db, player_id, server_id)
             
             if not economy:
                 # Create new economy account
-                economy = await Economy.create_or_update(self.bot.db, player_id, server_id)
+                economy = await EconomyModel.create_or_update(self.bot.db, player_id, server_id)
                 
             # Get transaction history
             transactions = await economy.get_recent_transactions(limit)

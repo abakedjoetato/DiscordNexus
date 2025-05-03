@@ -1,14 +1,15 @@
 """
-Entry point script for the Discord bot to be used with the Replit "Start application" workflow
+Entry point script for the Discord bot to be used with deployment services like Railway
 """
 import asyncio
 import logging
 import os
 import sys
+import traceback
 from dotenv import load_dotenv
 from bot import initialize_bot
 
-# Load environment variables from .env file
+# Load environment variables from .env file (helpful for local dev)
 load_dotenv()
 
 # Configure logging
@@ -26,32 +27,36 @@ logger = logging.getLogger(__name__)
 async def main():
     """Main function to run the Discord bot"""
     try:
+        logger.info("Starting Tower of Temptation PvP Statistics Discord Bot")
+        
         # Force a global sync of commands when starting the bot
         force_sync = True
         
-        # Log the MongoDB URI status (without exposing it)
-        if os.getenv("MONGODB_URI"):
-            logger.info("MONGODB_URI is set")
-        else:
-            logger.critical("MONGODB_URI environment variable not set. Exiting.")
+        # Check for all required environment variables
+        required_vars = ["MONGODB_URI", "DISCORD_TOKEN", "HOME_GUILD_ID"]
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        
+        if missing_vars:
+            logger.critical(f"Missing required environment variables: {', '.join(missing_vars)}. Exiting.")
             return
+        else:
+            logger.info("All required environment variables are set")
             
-        # Log the Discord token status (without exposing it)
+        # Get the Discord token (without logging it)
         token = os.getenv("DISCORD_TOKEN")
-        if token:
-            logger.info("DISCORD_TOKEN is set")
-        else:
-            logger.critical("DISCORD_TOKEN environment variable not set. Exiting.")
-            return
         
         # Initialize and start the bot
+        logger.info("Initializing bot...")
         bot = await initialize_bot(force_sync=force_sync)
         
         # Command syncing is handled in bot.py on_ready event
+        logger.info("Starting bot...")
         await bot.start(token)
     except Exception as e:
-        logger.critical(f"Failed to start bot: {e}", exc_info=True)
+        logger.critical(f"Failed to start bot: {e}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     # Run the Discord bot
+    logger.info("Starting bot process")
     asyncio.run(main())

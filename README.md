@@ -39,7 +39,7 @@ From the Railway dashboard, add the following environment variables:
 
 - `DISCORD_TOKEN`: Your Discord bot token
 - `MONGODB_URI`: MongoDB connection string
-- `OWNER_ID`: Discord ID of the bot owner
+- `HOME_GUILD_ID`: Discord ID of your home/main guild
 
 4. **Deploy the Bot**
 
@@ -50,6 +50,16 @@ railway up
 5. **Verify Status**
 
 Check the deployment status in your Railway dashboard.
+
+### Alternative Deployment Method
+
+You can also deploy directly from GitHub:
+
+1. Fork this repository
+2. Connect your Railway project to your GitHub repository
+3. Railway will automatically detect the configuration and start the deployment
+4. Set the required environment variables in the Railway dashboard
+5. Your bot will automatically deploy and start running
 
 ## Configuration
 

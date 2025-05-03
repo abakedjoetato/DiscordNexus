@@ -171,8 +171,8 @@ class MissionTracker:
         # Extract mission level
         level = self._extract_mission_level(mission_name)
         
-        # Only process ACTIVE state missions or state transitions from other states
-        is_important = (state == "ACTIVE") or (
+        # READY state is most important for output, but also track state transitions
+        is_important = (state == "READY") or (
             mission_name in self.mission_states and 
             self.mission_states[mission_name] != state
         )
@@ -189,25 +189,24 @@ class MissionTracker:
             'is_important': is_important
         }
         
-        # For ACTIVE state, update active missions
+        # For ACTIVE state, update active missions (internal tracking)
         if state == "ACTIVE":
             self.active_missions[mission_name] = event
-            # Only add to history if it's a level 3 or 4 mission
-            if level is not None and level >= 3:
-                self.mission_history.append(event)
-                return event
-        
-        # For non-ACTIVE states, it's only important if the mission was previously active
-        elif mission_name in self.active_missions and is_important:
-            # Remove from active missions if it was there
-            if mission_name in self.active_missions:
-                del self.active_missions[mission_name]
             
+        # For READY state, this is when we want to notify users (output to channel)
+        elif state == "READY":
             # Only add to history if it's a level 3 or 4 mission
             if level is not None and level >= 3:
                 self.mission_history.append(event)
                 return event
         
+        # For other states, it's only important for internal tracking
+        elif mission_name in self.active_missions and is_important:
+            # Remove from active missions if it was ENDED or another terminal state
+            if state in ["ENDED", "INITIAL"]:
+                if mission_name in self.active_missions:
+                    del self.active_missions[mission_name]
+            
         return event if is_important else None
     
     def get_high_level_missions(self) -> List[dict]:
@@ -328,6 +327,13 @@ class LogParser:
         self.server_id = None
         self.server_name = None
         self.player_names = {}  # Map player_id to player_name
+        
+        # Tracking for initial catch-up after bot restart or server add
+        self.initial_processing = True
+        self.catch_up_events = []
+        self.catch_up_complete = False
+        self.catch_up_threshold_minutes = 60  # Events older than this won't trigger notifications
+        self.parser_start_time = datetime.now()
     
     def parse_line(self, line: str) -> Dict[str, Any]:
         """Parse a single log line and update appropriate trackers."""
@@ -481,9 +487,42 @@ class LogParser:
         
         return result
     
+    def _convert_log_timestamp_to_datetime(self, timestamp_str: str) -> Optional[datetime]:
+        """Convert log timestamp to datetime object."""
+        if not timestamp_str:
+            return None
+            
+        try:
+            # Format: 2025.05.03-02.01.50:297
+            parts = timestamp_str.split(':')
+            if len(parts) != 2:
+                return None
+                
+            date_time_part = parts[0]
+            date_time_obj = datetime.strptime(date_time_part, '%Y.%m.%d-%H.%M.%S')
+            return date_time_obj
+        except (ValueError, TypeError):
+            return None
+            
+    def _is_recent_event(self, timestamp_str: str) -> bool:
+        """Check if an event is recent (within catch-up threshold)."""
+        if not timestamp_str:
+            return False
+            
+        event_time = self._convert_log_timestamp_to_datetime(timestamp_str)
+        if not event_time:
+            return False
+            
+        time_diff = datetime.now() - event_time
+        minutes_diff = time_diff.total_seconds() / 60
+        
+        # Events within threshold are considered recent
+        return minutes_diff <= self.catch_up_threshold_minutes
+    
     def parse_file(self, file_path: str, start_line: int = 0, max_lines: Optional[int] = None) -> List[Dict[str, Any]]:
         """Parse a log file and return all important events."""
         important_events = []
+        event_timestamps = []
         
         with open(file_path, 'r', encoding='utf-8-sig') as f:
             # Skip lines if needed
@@ -499,7 +538,33 @@ class LogParser:
                 event = self.parse_line(line)
                 if any(key in event for key in ['player_register', 'player_unregister', 'player_kick', 
                                                'mission', 'airdrop', 'helicrash', 'trader', 'convoy']):
+                    # Store important events
                     important_events.append(event)
+                    
+                    # Collect timestamps for catch-up analysis
+                    if self.last_processed_timestamp:
+                        event_timestamps.append(self.last_processed_timestamp)
+        
+        # Mark catch-up complete once we've seen all history
+        if self.initial_processing:
+            # If we have event timestamps, analyze them
+            if event_timestamps:
+                # Check if the most recent event is within threshold
+                recent_events = [ts for ts in event_timestamps if self._is_recent_event(ts)]
+                
+                # If any recent events, catch-up is complete
+                if recent_events:
+                    self.catch_up_complete = True
+                    self.initial_processing = False
+                    logger.info(f"Log parser catch-up complete. Found {len(recent_events)} recent events.")
+                else:
+                    # All events are old, still in catch-up mode
+                    self.catch_up_events.extend(important_events)
+                    logger.info(f"Log parser still in catch-up mode. Added {len(important_events)} events to catch-up buffer.")
+            else:
+                # No timestamps found, assume catch-up is complete
+                self.catch_up_complete = True
+                self.initial_processing = False
         
         return important_events
     
@@ -543,25 +608,72 @@ class LogParser:
             return f"Online: {self.player_tracker.get_player_count()}/{self.max_player_count}"
         return f"Online: {self.player_tracker.get_player_count()}"
         
-    def get_connections_events(self) -> List[Dict[str, Any]]:
-        """Get player connection events for the connections channel."""
+    def should_output_event(self, timestamp_str: str) -> bool:
+        """Determine if an event should be output to channels based on catch-up status."""
+        # If we've completed catch-up, always output
+        if self.catch_up_complete:
+            return True
+            
+        # If we're still in initial processing/catch-up mode
+        # Only output events that are recent
+        return self._is_recent_event(timestamp_str)
+        
+    def get_connections_events(self, include_historical: bool = False) -> List[Dict[str, Any]]:
+        """Get player connection events for the connections channel.
+        
+        Args:
+            include_historical: If True, include all events regardless of age.
+                               Otherwise, only return events after catch-up is complete.
+        """
         events = []
-        for player_id, history in self.player_tracker.player_history.items():
-            for event in history:
-                if event['event_type'] in ['register', 'unregister', 'kick', 'join']:
-                    # Add player name if available
-                    if player_id in self.player_names and 'player_name' not in event:
-                        event['player_name'] = self.player_names[player_id]
-                    events.append(event)
+        
+        # If we're filtering out historical events and still in catch-up mode
+        if not include_historical and self.initial_processing and not self.catch_up_complete:
+            # Only get recent events
+            logger.info("Filtering connection events during initial catch-up")
+            for player_id, history in self.player_tracker.player_history.items():
+                for event in history:
+                    if event['event_type'] in ['register', 'unregister', 'kick', 'join']:
+                        # Only include recent events
+                        if self.should_output_event(event.get('timestamp', '')):
+                            # Add player name if available
+                            if player_id in self.player_names and 'player_name' not in event:
+                                event['player_name'] = self.player_names[player_id]
+                            events.append(event)
+        else:
+            # Get all events
+            for player_id, history in self.player_tracker.player_history.items():
+                for event in history:
+                    if event['event_type'] in ['register', 'unregister', 'kick', 'join']:
+                        # Add player name if available
+                        if player_id in self.player_names and 'player_name' not in event:
+                            event['player_name'] = self.player_names[player_id]
+                        events.append(event)
+                        
         return sorted(events, key=lambda x: x['timestamp'])
     
-    def get_game_events(self) -> List[Dict[str, Any]]:
-        """Get game events for the events channel."""
+    def get_game_events(self, include_historical: bool = False) -> List[Dict[str, Any]]:
+        """Get game events for the events channel.
+        
+        Args:
+            include_historical: If True, include all events regardless of age.
+                               Otherwise, only return events after catch-up is complete.
+        """
         events = []
+        
+        # If we're filtering out historical events, check catch-up status
+        should_filter = not include_historical and self.initial_processing and not self.catch_up_complete
+        
+        if should_filter:
+            logger.info("Filtering game events during initial catch-up")
         
         # Add high-level mission events
         for mission in self.mission_tracker.get_high_level_missions():
-            if mission['state'] == 'ACTIVE' and mission.get('level', 0) >= 3:
+            if mission['state'] == 'READY' and mission.get('level', 0) >= 3:
+                # Skip if filtering and not a recent event
+                if should_filter and not self.should_output_event(mission.get('timestamp', '')):
+                    continue
+                    
                 events.append({
                     'timestamp': mission['timestamp'],
                     'event_type': 'mission',
@@ -573,6 +685,10 @@ class LogParser:
         # Add airdrop events
         for event in self.event_tracker.get_event_history('airdrop'):
             if event['state'] in ['Flying', 'Dropping']:
+                # Skip if filtering and not a recent event
+                if should_filter and not self.should_output_event(event.get('timestamp', '')):
+                    continue
+                    
                 events.append({
                     'timestamp': event['timestamp'],
                     'event_type': 'airdrop',
@@ -583,6 +699,10 @@ class LogParser:
         for event_type in ['helicrash', 'trader', 'convoy']:
             for event in self.event_tracker.get_event_history(event_type):
                 if event['state'] == 'ACTIVE':
+                    # Skip if filtering and not a recent event
+                    if should_filter and not self.should_output_event(event.get('timestamp', '')):
+                        continue
+                        
                     events.append({
                         'timestamp': event['timestamp'],
                         'event_type': event_type,

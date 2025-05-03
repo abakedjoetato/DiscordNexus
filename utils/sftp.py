@@ -69,10 +69,10 @@ class SFTPClient:
             # Create pattern for server directory
             ip_address = self.host.split(':')[0]
             server_pattern = f"{ip_address}_{self.server_id}"
-            
+
             # Ensure we have enough depth to reach CSV files (pattern: root/serverid/actual1/deathlogs/worldX/)
             self.max_search_depth = 6
-            
+
             items = await self._list_dir_safe(current_path)
             logger.info(f"Searching for server directory matching pattern: {server_pattern}")
             logger.info(f"Found items in root: {items}")
@@ -115,7 +115,7 @@ class SFTPClient:
                 return None
 
         current_time = time.time()
-        
+
         # Check cache validity
         if (self._csv_cache and 
             current_time - self._csv_cache_time < self._csv_cache_duration):
@@ -133,38 +133,40 @@ class SFTPClient:
 
             csv_files = []
             paths_checked = set()
-            
+
             async def check_path(base_path, depth=0):
                 if depth > 10 or base_path in paths_checked:  # Prevent infinite recursion
                     return []
-                
+
                 paths_checked.add(base_path)
                 found_files = []
-                
+
                 try:
                     items = await self._list_dir_safe(base_path)
                     if not items:
                         return []
 
-                    # First pass: Look for world directories and CSV files
-                    for item in items:
-                        full_path = os.path.join(base_path, item)
-                        
-                        if re.match(CSV_FILENAME_PATTERN, item):
-                            found_files.append(full_path)
-                            continue
-                            
-                        if 'world' in item.lower():
+                    # First prioritize worldX directories
+                    world_dirs = [item for item in items if re.match(r'^world_\d+$', item.lower())]
+
+                    # Then check these world directories first
+                    for world_dir in world_dirs:
+                        full_path = os.path.join(base_path, world_dir)
+                        if await self._is_dir_safe(full_path):
                             subdir_files = await check_path(full_path, depth + 1)
                             found_files.extend(subdir_files)
 
-                    # Second pass: Check other directories if we haven't found files
+                    # Check for CSV files in current directory
+                    csv_files = [item for item in items if re.match(CSV_FILENAME_PATTERN, item)]
+                    found_files.extend([os.path.join(base_path, csv) for csv in csv_files])
+
+                    # Only check other directories if we haven't found files
                     if not found_files:
-                        for item in items:
-                            full_path = os.path.join(base_path, item)
-                            if await self._is_dir_safe(full_path) and 'world' not in item.lower():
-                                subdir_files = await check_path(full_path, depth + 1)
-                                found_files.extend(subdir_files)
+                        other_dirs = [item for item in items if item not in world_dirs and await self._is_dir_safe(os.path.join(base_path, item))]
+                        for other_dir in other_dirs:
+                            full_path = os.path.join(base_path, other_dir)
+                            subdir_files = await check_path(full_path, depth + 1)
+                            found_files.extend(subdir_files)
 
                 except Exception as e:
                     logger.warning(f"Error checking path {base_path}: {e}")
@@ -663,7 +665,7 @@ class SFTPClient:
                                     chunk = f.read(chunk_size)
                                     if not chunk:
                                         break
-                                        
+
                                     read_size += len(chunk)
                                     total_lines += chunk.count(b'\n')
 

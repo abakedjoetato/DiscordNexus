@@ -601,3 +601,23 @@ class Server:
         update_data["suicide_notifications"] = updated_settings
 
         return await self.update(update_data)
+
+    async def update_channels(self, channel_updates):
+        """Update channel configurations"""
+        try:
+            updates = {}
+            for key, value in channel_updates.items():
+                if value is not None:
+                    # Ensure channel IDs are stored as integers
+                    if key.endswith('_channel_id'):
+                        try:
+                            updates[key] = int(str(value).strip())
+                        except (ValueError, TypeError):
+                            logger.error(f"Invalid channel ID format for {key}: {value}")
+                            continue
+                    else:
+                        updates[key] = value
+            return await self.update(updates)
+        except Exception as e:
+            logger.error(f"Error updating channels: {e}", exc_info=True)
+            return False

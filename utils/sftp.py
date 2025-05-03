@@ -358,16 +358,17 @@ class SFTPClient:
                         for _ in range(start):
                             next(chunk_file, None)
 
-                        # Read the requested chunk
+                        # Read the requested chunk with stricter timeout
                         chunk_lines = []
                         count = 0
 
-                        # Use a separate thread for potentially blocking IO
-                        # and add a timeout to prevent blocking the event loop
-                        return await asyncio.wait_for(
-                            asyncio.to_thread(self._read_chunk, chunk_file, max_count),
-                            timeout=5.0  # 5 second timeout
-                        )
+                        try:
+                            async with asyncio.timeout(3.0):  # Shorter timeout to prevent heartbeat blocks
+                                return await asyncio.to_thread(self._read_chunk, chunk_file, max_count)
+                        except asyncio.TimeoutError:
+                            logger.warning(f"Chunk read timeout for {file_path} at position {start}")
+                            # Return partial data if we have any
+                            return chunk_lines if chunk_lines else []
 
                 except asyncio.TimeoutError:
                     logger.warning(f"Timeout reading file {file_path} at position {start}")
@@ -561,22 +562,25 @@ class SFTPClient:
 
             # Run the optimized counting with a longer timeout for more accurate results
             try:
-                def optimized_count(path):
+                async def optimized_count():
                     try:
-                        with self.sftp.file(path, 'r') as f:
-                            chunk_size = 1024 * 1024  # 1MB chunks
-                            total_lines = 0
-                            buffer = f.read(chunk_size)
-                            while buffer:
-                                total_lines += buffer.count(b'\n')
+                        async with asyncio.timeout(10):  # 10 second timeout for file operations
+                            # Use a binary file handle for better performance
+                            with self.sftp.file(file_path, 'rb') as f:
+                                chunk_size = 1024 * 1024  # 1MB chunks
+                                total_lines = 0
                                 buffer = f.read(chunk_size)
-                            return total_lines + (0 if not buffer or buffer.endswith(b'\n') else 1)
+                                while buffer:
+                                    total_lines += buffer.count(b'\n')
+                                    buffer = f.read(chunk_size)
+                                return total_lines + (0 if not buffer or buffer.endswith(b'\n') else 1)
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Timeout during line counting for {file_path}")
+                        return 600
                     except Exception as e:
                         logger.error(f"Error in optimized count: {e}")
                         return 600  # Default if counting fails
 
-                # Convert file path to bytes if needed
-                path_bytes = file_path.encode('utf-8') if isinstance(file_path, str) else file_path
                 return await asyncio.wait_for(
                     asyncio.to_thread(lambda: optimized_count(path_bytes)),
                     timeout=15.0  # Longer timeout for better accuracy

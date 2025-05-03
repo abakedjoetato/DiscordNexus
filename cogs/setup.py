@@ -778,6 +778,34 @@ class Setup(commands.Cog):
             # Update connections channel
             if connections_channel:
                 update_data["connections_channel_id"] = connections_channel.id
+                logger.info(f"Setting connections_channel_id to {update_data['connections_channel_id']}")
+                update_desc.append(f"Connections Channel: {connections_channel.mention}")
+
+            # Update server with new channel IDs
+            success = await server.update(update_data)
+            if not success:
+                embed = EmbedBuilder.create_error_embed(
+                    "Error",
+                    "Failed to update server channels. Please try again."
+                , guild=guild_model)
+                await ctx.send(embed=embed)
+                return
+
+            # Send success message
+            embed = EmbedBuilder.create_success_embed(
+                "Channels Updated",
+                "Server channels have been updated successfully."
+            , guild=guild_model)
+            embed.add_field(
+                name="Updated Channels",
+                value="\n".join(update_desc),
+                inline=False
+            )
+            await ctx.send(embed=embed)nts_channel.mention}")
+
+            # Update connections channel
+            if connections_channel:
+                update_data["connections_channel_id"] = connections_channel.id
                 logger.info(f"Setting connections_channel_id to {update_data['connections_channel_id']} (type: {type(update_data['connections_channel_id']).__name__})")
                 update_desc.append(f"Connections Channel: {connections_channel.mention}")
 

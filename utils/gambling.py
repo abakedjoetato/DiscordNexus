@@ -399,7 +399,7 @@ class SlotsView(View):
                 logger.error(f"Error handling slots timeout: {e}")
     
     @discord.ui.button(label="Spin", style=ButtonStyle.primary)
-    async def spin_button(self, interaction: discord.Interaction):
+    async def spin_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         # Check if it's the player's game
         if str(interaction.user.id) != self.player_id:
             await interaction.response.send_message("This isn't your game!", ephemeral=True)
@@ -475,7 +475,7 @@ class SlotsView(View):
         await loading_message.edit(embed=embed, view=self)
     
     @discord.ui.button(label="Change Bet", style=ButtonStyle.secondary)
-    async def change_bet_button(self, interaction: discord.Interaction):
+    async def change_bet_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         # Check if it's the player's game
         if str(interaction.user.id) != self.player_id:
             await interaction.response.send_message("This isn't your game!", ephemeral=True)
@@ -510,7 +510,7 @@ class SlotsView(View):
                 await interaction.followup.send("Please enter a valid number!", ephemeral=True)
     
     @discord.ui.button(label="Quit", style=ButtonStyle.danger)
-    async def quit_button(self, interaction: discord.Interaction):
+    async def quit_button(self, button: discord.ui.Button, interaction: discord.Interaction):
         # Check if it's the player's game
         if str(interaction.user.id) != self.player_id:
             await interaction.response.send_message("This isn't your game!", ephemeral=True)

@@ -200,9 +200,20 @@ class BlackjackGame:
 
 class BlackjackView(View):
     def __init__(self, game: BlackjackGame, economy):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)  # 5 minutes timeout
         self.game = game
         self.economy = economy
+        
+    async def on_timeout(self):
+        """Handle view timeout by disabling buttons"""
+        self.disable_all_buttons()
+        if self.game.message:
+            try:
+                embed = self.game.message.embeds[0]
+                embed.add_field(name="Timeout", value="Game timed out due to inactivity.", inline=False)
+                await self.game.message.edit(embed=embed, view=None)
+            except Exception as e:
+                logger.error(f"Error handling blackjack timeout: {e}")
     
     @discord.ui.button(label="Hit", style=ButtonStyle.primary)
     async def hit_button(self, button: Button, interaction: discord.Interaction):
@@ -364,11 +375,28 @@ class SlotMachine:
 
 class SlotsView(View):
     def __init__(self, player_id: str, economy, bet: int = 10):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)  # 5 minutes timeout
         self.player_id = player_id
         self.economy = economy
         self.slot_machine = SlotMachine()
         self.bet = bet
+        self.message = None
+        
+    async def on_timeout(self):
+        """Handle view timeout by disabling buttons"""
+        self.disable_all_buttons()
+        if self.message:
+            try:
+                embed = discord.Embed(
+                    title="🎰 Slot Machine 🎰",
+                    description="Game timed out due to inactivity.",
+                    color=discord.Color.dark_gray()
+                )
+                balance = await self.economy.get_balance()
+                embed.add_field(name="Your Balance", value=f"{balance} credits", inline=False)
+                await self.message.edit(embed=embed, view=None)
+            except Exception as e:
+                logger.error(f"Error handling slots timeout: {e}")
     
     @discord.ui.button(label="Spin", style=ButtonStyle.primary)
     async def spin_button(self, button: Button, interaction: discord.Interaction):

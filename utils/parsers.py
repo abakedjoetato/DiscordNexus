@@ -123,41 +123,44 @@ class CSVParser:
     
     @staticmethod
     def parse_kill_line(line: str) -> Optional[Dict[str, Any]]:
-        """Parse a single line from a CSV file into a kill event"""
+        """Parse a single line from a CSV file into a kill event with improved error tolerance"""
         try:
-            parts = line.strip().split(';')
-            
-            # Debug info
-            logger.debug(f"Parsing CSV line with {len(parts)} parts: {line}")
-            
-            # Ensure we have all required fields
-            if len(parts) < 7:
-                logger.warning(f"Invalid CSV line format (missing fields): {line}")
+            if not line or not line.strip():
                 return None
                 
-            # Note: Some CSV lines may have a trailing delimiter creating an 8th empty field
-            # We'll ignore that extra field and remove any empty strings
-            parts = [p for p in parts if p.strip()]
+            # Debug info
+            logger.debug(f"Parsing CSV line: {line}")
             
-            # The CSV format has been updated to include console information directly:
-            # Timestamp;Killer name;Killer ID;Victim name;Victim ID;Weapon;Distance;Killer console;Victim console;Blank
+            # Split into parts but ensure we don't lose empty fields
+            parts = line.strip().split(';')
+            raw_parts = parts.copy()  # Keep a copy for special case checking
             
-            # However, we still need to check for the special case of console connection lines
-            # These have a format with empty killer fields and non-empty victim console field
-            raw_parts = line.strip().split(';')
+            # Handle files with different formats more tolerantly
+            # More flexible parsing - we'll accept different field counts
+            if len(parts) < 4:  # Absolute minimum: timestamp, victim name, victim ID
+                logger.warning(f"CSV line has too few fields ({len(parts)}): {line}")
+                return None
+               
+            # Filter parts but keep track of positions with placeholders
+            # This maintains field positions while handling empty fields
+            parts_with_placeholders = []
+            for p in parts:
+                if p.strip():
+                    parts_with_placeholders.append(p.strip())
+                else:
+                    parts_with_placeholders.append("__EMPTY__")
             
             # Check if this is a connection event (has empty killer fields)
             if (len(raw_parts) >= 8 and 
-                (raw_parts[1] == "" or raw_parts[1].isspace()) and 
-                (raw_parts[2] == "" or raw_parts[2].isspace())):
+                (not raw_parts[1].strip() or raw_parts[1].isspace()) and 
+                (not raw_parts[2].strip() or raw_parts[2].isspace())):
                 # This might be a connection event - check for console indicators
-                # in either the traditional position or in the new console fields
                 console_indicators = ["XSX", "PS5", "PC"]
                 
                 has_console_indicator = False
                 for indicator in console_indicators:
                     # Check anywhere in raw parts for console indicators
-                    if any(indicator in part for part in raw_parts if part.strip()):
+                    if any(indicator in part for part in raw_parts if part and part.strip()):
                         has_console_indicator = True
                         break
                         
@@ -165,38 +168,63 @@ class CSVParser:
                     logger.debug(f"Detected console connection line: {line}")
                     return None  # Skip these lines as they're not actual kill events
             
-            # Extract fields with validation
+            # Extract fields with safer extraction
             try:
+                # Helper function to safely get values with defaults
+                def safe_get(arr, idx, default=""):
+                    """Safely get a value from an array with a default fallback"""
+                    if 0 <= idx < len(arr):
+                        val = arr[idx]
+                        return val if val != "__EMPTY__" else default
+                    return default
+                
                 # Get timestamp which should always be present
-                timestamp_str = parts[CSV_FIELDS["timestamp"]]
+                timestamp_str = safe_get(parts_with_placeholders, CSV_FIELDS.get("timestamp", 0))
                 
-                # For the rest of the fields, use defaults if they might be missing
-                killer_name = parts[CSV_FIELDS["killer_name"]] if len(parts) > CSV_FIELDS["killer_name"] else ""
-                killer_id = parts[CSV_FIELDS["killer_id"]] if len(parts) > CSV_FIELDS["killer_id"] else ""
-                victim_name = parts[CSV_FIELDS["victim_name"]] if len(parts) > CSV_FIELDS["victim_name"] else ""
-                victim_id = parts[CSV_FIELDS["victim_id"]] if len(parts) > CSV_FIELDS["victim_id"] else ""
+                # For the rest of the fields, use defaults if missing
+                killer_name = safe_get(parts_with_placeholders, CSV_FIELDS.get("killer_name", 1))
+                killer_id = safe_get(parts_with_placeholders, CSV_FIELDS.get("killer_id", 2))
+                victim_name = safe_get(parts_with_placeholders, CSV_FIELDS.get("victim_name", 3))
+                victim_id = safe_get(parts_with_placeholders, CSV_FIELDS.get("victim_id", 4))
                 
-                # Handle weapon field - this is where we might have unrecognized weapons
+                # Handle weapon field with normalization
                 weapon = ""
-                if len(parts) > CSV_FIELDS["weapon"]:
-                    weapon = CSVParser.normalize_weapon_name(parts[CSV_FIELDS["weapon"]])
+                weapon_idx = CSV_FIELDS.get("weapon", 5)
+                if 0 <= weapon_idx < len(parts_with_placeholders):
+                    weapon_raw = parts_with_placeholders[weapon_idx]
+                    if weapon_raw != "__EMPTY__":
+                        weapon = CSVParser.normalize_weapon_name(weapon_raw)
                 
-                # Additional validation - we need at least timestamp, victim ID and either weapon or killer ID
-                if not timestamp_str or not victim_id or (not weapon and not killer_id):
-                    logger.warning(f"Missing critical field values in line: {line}")
+                # More flexible validation - require timestamp and either victim or killer info
+                # We'll be more permissive to capture more events
+                if not timestamp_str:
+                    logger.warning(f"Missing timestamp in line: {line}")
+                    return None
+                    
+                # As long as we have a timestamp and at least one player ID, we can use the event
+                if not victim_id and not killer_id:
+                    logger.warning(f"Missing all player IDs in line: {line}")
                     return None
                 
-                # Try to parse distance as int, default to 0 if fails
-                try:
-                    if CSV_FIELDS["distance"] < len(parts):
-                        distance = int(parts[CSV_FIELDS["distance"]])
-                    else:
-                        distance = 0
-                except (ValueError, IndexError):
-                    distance = 0
-            except IndexError:
-                logger.warning(f"Index error while parsing CSV line: {line}")
-                return None
+                # Parse distance with better error handling
+                distance = 0
+                distance_idx = CSV_FIELDS.get("distance", 6)
+                if 0 <= distance_idx < len(parts_with_placeholders):
+                    distance_str = parts_with_placeholders[distance_idx]
+                    if distance_str != "__EMPTY__":
+                        try:
+                            # Handle both integer and float strings
+                            distance = int(float(distance_str))
+                        except (ValueError, TypeError):
+                            # Keep default of 0
+                            pass
+            except IndexError as idx_err:
+                # More detailed logging for debugging
+                logger.warning(f"Index error parsing CSV line: {line} - Error: {idx_err}")
+                # We'll continue with defaults rather than rejecting the line completely
+                if not 'timestamp_str' in locals():
+                    logger.error(f"Critical field timestamp missing, skipping line")
+                    return None
             
             # Parse timestamp
             try:
@@ -291,12 +319,12 @@ class LogParser:
             
             try:
                 # Parse timestamp
-                timestamp = datetime.datetime.strptime(
+                timestamp = datetime.strptime(
                     f"{date_str} {time_str}", "%Y.%m.%d %H.%M.%S"
                 )
             except ValueError:
                 # Use current time as fallback
-                timestamp = datetime.datetime.utcnow()
+                timestamp = datetime.utcnow()
             
             # Check for player connection events
             connection_match = re.search(r'Player (\w+) \(([0-9a-f]+)\) (connected|disconnected)', line)

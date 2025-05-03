@@ -200,13 +200,13 @@ class CSVParser:
             
             # Parse timestamp
             try:
-                timestamp = datetime.datetime.strptime(
+                timestamp = datetime.strptime(
                     timestamp_str, "%Y.%m.%d-%H.%M.%S"
                 )
             except ValueError:
                 logger.warning(f"Invalid timestamp format: {timestamp_str}")
                 # Use current time as fallback
-                timestamp = datetime.datetime.utcnow()
+                timestamp = datetime.utcnow()
             
             # Determine if this is a suicide - only when killer ID equals victim ID
             is_suicide = killer_id == victim_id

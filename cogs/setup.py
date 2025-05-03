@@ -116,6 +116,11 @@ async def server_id_autocomplete(interaction, current):
                     for server in servers:
                         if "server_id" in server:
                             server["server_id"] = str(server["server_id"])
+
+                    # Ensure all server_ids are strings
+                    for server in servers:
+                        if "server_id" in server:
+                            server["server_id"] = str(server["server_id"])
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout in server_id_autocomplete for guild {guild_id}")
                 servers = []  # Empty result on timeout
@@ -155,6 +160,11 @@ async def server_id_autocomplete(interaction, current):
                     if guild_data and "servers" in guild_data:
                         # Get server data
                         servers = guild_data["servers"]
+
+                    # Ensure all server_ids are strings
+                    for server in servers:
+                        if "server_id" in server:
+                            server["server_id"] = str(server["server_id"])
                         logger.info(f"Found {len(servers)} servers in fresh database query")
 
                     # Ensure all server_ids are strings

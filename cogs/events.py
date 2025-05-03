@@ -48,7 +48,7 @@ async def server_id_autocomplete(interaction, current):
                 cog.server_autocomplete_cache[guild_id] = {
                     "servers": [
                         {
-                            "id": server.get("server_id", ""),
+                            "id": str(server.get("server_id", "")),  # Convert to string to ensure consistent type
                             "name": server.get("server_name", "Unknown Server")
                         }
                         for server in guild_data.get("servers", [])

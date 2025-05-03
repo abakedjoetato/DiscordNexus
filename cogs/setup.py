@@ -28,6 +28,21 @@ SERVER_CACHE_TIMEOUT = 300  # 5 minutes
 async def server_id_autocomplete(interaction, current):
     """Autocomplete for server selection by name, returns server_id as value"""
     try:
+        # Log details about the interaction for debugging
+        command_path = interaction.data.get("name", "unknown")
+        command_type = "unknown"
+        if command_path == "setup":
+            command_type = "setup_command"
+            if "options" in interaction.data:
+                for option in interaction.data.get("options", []):
+                    # Check if it's a setup subcommand that needs server selection
+                    subcommand = option.get("name", "")
+                    if subcommand in ["historicalparse", "diagnose", "setupchannels", "removeserver"]:
+                        command_type = f"setup_{subcommand}"
+                        command_path += f"/{subcommand}"
+        
+        logger.info(f"Running autocomplete for {command_path} (type: {command_type})")
+        
         # Get user's guild ID
         guild_id = interaction.guild_id
 
@@ -48,6 +63,11 @@ async def server_id_autocomplete(interaction, current):
                 if guild_data and "servers" in guild_data:
                     # Get server data
                     servers = guild_data["servers"]
+
+                    # Ensure all server_ids are strings
+                    for server in servers:
+                        if "server_id" in server:
+                            server["server_id"] = str(server["server_id"])
             except asyncio.TimeoutError:
                 logger.warning(f"Timeout in server_id_autocomplete for guild {guild_id}")
                 servers = []  # Empty result on timeout
@@ -75,6 +95,11 @@ async def server_id_autocomplete(interaction, current):
                         # Get server data
                         servers = guild_data["servers"]
 
+                    # Ensure all server_ids are strings
+                    for server in servers:
+                        if "server_id" in server:
+                            server["server_id"] = str(server["server_id"])
+                    
                     # Update cache
                     SERVER_CACHE[cache_key] = {
                         "timestamp": datetime.datetime.now(),
@@ -531,7 +556,7 @@ class Setup(commands.Cog):
             , guild=guild_model)
             await ctx.send(embed=embed)
 
-    @setup.command(name="channels", description="Configure notification channels for a server")
+    @setup.command(name="setupchannels", description="Configure notification channels for a server")
     @app_commands.describe(
         server_id="Select a server by name to configure",
         killfeed_channel="Channel for killfeed notifications",
@@ -965,7 +990,7 @@ class Setup(commands.Cog):
         """Parse all historical data for a server"""
         # Ensure server_id is a string for consistent comparison
         server_id = str(server_id) if server_id is not None else ""
-        logger.info(f"Normalized server_id to string: {server_id}")
+        logger.info(f"Historical_parse received server_id type: {type(server_id).__name__}, value: {server_id}")
 
         try:
             # Defer response to prevent timeout
@@ -1005,12 +1030,32 @@ class Setup(commands.Cog):
 
             # Get server
             server = None
+            logger.info(f"Looking for server with ID '{server_id}' (type: {type(server_id).__name__}) in guild {ctx.guild.id}")
+            
+            # Log all available servers for debugging
+            available_servers = []
             for s in guild_data.get("servers", []):
                 server_id_from_db = s.get("server_id")
-                # Ensure string comparison for compatibility with autocomplete
-                if str(server_id_from_db) == str(server_id):
+                server_id_type = type(server_id_from_db).__name__
+                server_name = s.get("server_name", "Unknown")
+                available_servers.append(f"{server_name}: '{server_id_from_db}' (type: {server_id_type})")
+                
+                # Convert both to strings for comparison
+                db_id_str = str(server_id_from_db) if server_id_from_db is not None else ""
+                input_id_str = str(server_id) if server_id is not None else ""
+                
+                logger.info(f"Comparing server: DB ID='{db_id_str}' with input ID='{input_id_str}'")
+                
+                if db_id_str == input_id_str:
+                    logger.info(f"Match found! Server '{server_name}' with ID '{db_id_str}'")
                     server = Server(self.bot.db, s)
                     break
+                else:
+                    logger.debug(f"No match: DB ID '{db_id_str}' ≠ input ID '{input_id_str}'")
+            
+            # Log available servers if none matched
+            if not server:
+                logger.warning(f"No server found with ID '{server_id}'. Available servers: {available_servers}")
 
             if not server:
                 embed = EmbedBuilder.create_error_embed(
